@@ -1,0 +1,5 @@
+package com.fitterra.mobile
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()

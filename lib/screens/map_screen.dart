@@ -4,6 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import '../app_state.dart';
 
+/// Interactive map screen showing GPS paths, territories claimed, and real-time navigation controls.
+///
+/// [Why] Acts as the primary interface of the game, letting users explore, 
+/// start workout routes, and visually target and capture/defend H3 hex-polygon zones.
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
@@ -11,6 +15,8 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
+/// The state controller for MapScreen responsible for managing map interactions, 
+/// location updates, and rendering map-specific UI components like markers and polygons.
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   LatLng? _lastCenteredLocation;
@@ -22,6 +28,9 @@ class _MapScreenState extends State<MapScreen> {
       final state = Provider.of<AppState>(context, listen: false);
       state.addListener(_onStateChanged);
       await state.determineAndSetCurrentLocation();
+      if (state.userId != null) {
+        state.fetchActivities();
+      }
       if (mounted) {
         _mapController.move(state.centerLocation, 14.5);
       }
@@ -35,6 +44,9 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
+  /// Triggers map panning updates when the device resolves a new GPS position coordinates node.
+  ///
+  /// [Why] Automatically keeps the map centered on the player during active tracking.
   void _onStateChanged() {
     if (!mounted) return;
     final state = Provider.of<AppState>(context, listen: false);
@@ -45,21 +57,36 @@ class _MapScreenState extends State<MapScreen> {
         _lastCenteredLocation = state.centerLocation;
         _mapController.move(state.centerLocation, _mapController.camera.zoom);
       }
+    } else {
+      // Auto-center once if map is centered on default New York, but state location is resolved elsewhere
+      final currentMapCenter = _mapController.camera.center;
+      final isNewYork = (currentMapCenter.latitude - 40.785091).abs() < 0.0001 &&
+                        (currentMapCenter.longitude - (-73.968285)).abs() < 0.0001;
+      final isStateNewYork = (state.centerLocation.latitude - 40.785091).abs() < 0.0001 &&
+                             (state.centerLocation.longitude - (-73.968285)).abs() < 0.0001;
+      if (isNewYork && !isStateNewYork) {
+        _mapController.move(state.centerLocation, 14.5);
+      }
     }
   }
 
+  /// Parses hex color strings into Color classes.
   Color _parseColor(String hex, {double opacity = 1.0}) {
     final clean = hex.replaceAll('#', '');
     final val = int.parse('FF$clean', radix: 16);
     return Color(val).withOpacity(opacity);
   }
 
+  /// Utility to convert seconds into `MM:SS` format.
   String _formatDuration(int totalSeconds) {
     final minutes = (totalSeconds / 60).floor().toString().padLeft(2, '0');
     final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
   }
 
+  /// Shows the history logs bottom drawer list for a specific territory.
+  ///
+  /// [Why] Displays list of sieges, defenses, and creation logs.
   void _showHistoryBottomSheet(BuildContext context, AppState state, int territoryId) {
     showModalBottomSheet(
       context: context,
@@ -164,8 +191,8 @@ class _MapScreenState extends State<MapScreen> {
     final List<Polygon> mapPolygons = [];
     for (var t in state.territories) {
       final isSelected = t.id == state.targetTerritoryId;
-      Color color = _parseColor(t.color, opacity: 0.3);
-      Color borderColor = _parseColor(t.color, opacity: 0.8);
+      Color color = t.parsedColor.withOpacity(0.3);
+      Color borderColor = t.parsedColor.withOpacity(0.8);
       double borderStroke = isSelected ? 6.0 : 3.0;
 
       // Under attack/critical border coloring overrides
@@ -192,6 +219,218 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
+    final List<Polyline> completedPolylines = [];
+    for (var act in state.activities) {
+      final pointsData = act['points'] as List<dynamic>?;
+      if (pointsData != null && pointsData.isNotEmpty) {
+        final List<LatLng> points = pointsData.map((pt) {
+          final lat = (pt['lat'] as num).toDouble();
+          final lng = (pt['lng'] as num).toDouble();
+          return LatLng(lat, lng);
+        }).toList();
+
+        if (points.length >= 2) {
+          final status = act['status'] as String? ?? 'COMPLETED';
+          final isFailed = status == 'FAILED_TERRITORY';
+          
+          completedPolylines.add(
+            Polyline(
+              points: points,
+              strokeWidth: isFailed ? 3.0 : 4.5,
+              borderColor: isFailed 
+                  ? Colors.redAccent.withOpacity(0.3) 
+                  : const Color(0xFFE040FB).withOpacity(0.3),
+              borderStrokeWidth: 1.0,
+              color: isFailed 
+                  ? Colors.red.withOpacity(0.6) 
+                  : const Color(0xFFE040FB).withOpacity(0.6),
+              strokeCap: StrokeCap.round,
+              strokeJoin: StrokeJoin.round,
+            ),
+          );
+        }
+      }
+    }
+
+    final List<Marker> mapMarkers = [];
+
+    // Add small start point markers for completed activities
+    for (var act in state.activities) {
+      final pointsData = act['points'] as List<dynamic>?;
+      if (pointsData != null && pointsData.isNotEmpty) {
+        final List<LatLng> points = pointsData.map((pt) {
+          final lat = (pt['lat'] as num).toDouble();
+          final lng = (pt['lng'] as num).toDouble();
+          return LatLng(lat, lng);
+        }).toList();
+
+        if (points.length >= 2) {
+          final status = act['status'] as String? ?? 'COMPLETED';
+          final isFailed = status == 'FAILED_TERRITORY';
+          final startPoint = points.first;
+          
+          mapMarkers.add(
+            Marker(
+              point: startPoint,
+              width: 10,
+              height: 10,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isFailed ? Colors.redAccent : const Color(0xFFE040FB),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+              ),
+            ),
+          );
+        }
+      }
+    }
+
+    // Add Live Current Location Marker (Blue Dot)
+    mapMarkers.add(
+      Marker(
+        point: state.centerLocation,
+        width: 26,
+        height: 26,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF007AFF).withOpacity(0.2),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: const Color(0xFF007AFF),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.25),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (state.pathPoints.isNotEmpty) {
+      mapMarkers.add(
+        Marker(
+          point: state.pathPoints.first,
+          width: 14,
+          height: 14,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF00B0FF),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      );
+    }
+    if (state.pathPoints.length >= 2) {
+      mapMarkers.add(
+        Marker(
+          point: state.pathPoints.last,
+          width: 14,
+          height: 14,
+          child: Container(
+            decoration: BoxDecoration(
+              color: state.snapClosure ? const Color(0xFF00B0FF) : Colors.orangeAccent,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Add territory center owner avatar markers!
+    for (var t in state.territories) {
+      for (var path in t.paths) {
+        if (path.isNotEmpty) {
+          final center = _calculateCentroid(path);
+          final initial = t.ownerName.isNotEmpty ? t.ownerName[0].toUpperCase() : '?';
+          final color = t.parsedColor;
+          final isCritical = t.status == 'CRITICAL' || t.status == 'CAPTURE_WINDOW';
+          final isTargetedAndReady = state.targetTerritoryId == t.id && state.attackPrepDays >= state.attackPrepRequiredDays;
+          final showCrown = isCritical || isTargetedAndReady;
+
+          mapMarkers.add(
+            Marker(
+              point: center,
+              width: 50,
+              height: 50,
+              child: GestureDetector(
+                onTap: () {
+                  _showOwnerDetailsPopup(context, state, t);
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(2.0),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              initial,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (showCrown)
+                      const Positioned(
+                        top: -14,
+                        right: 8,
+                        child: Text(
+                          '👑',
+                          style: TextStyle(fontSize: 18),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          // Only add a marker for the first path of the territory to avoid duplicates
+          break;
+        }
+      }
+    }
+
     return Scaffold(
       body: Stack(
         children: [
@@ -201,6 +440,11 @@ class _MapScreenState extends State<MapScreen> {
             options: MapOptions(
               initialCenter: state.centerLocation,
               initialZoom: 14.5,
+              onPositionChanged: (camera, hasGesture) {
+                if (hasGesture) {
+                  state.saveLastCenteredLocation(camera.center);
+                }
+              },
               onTap: (tapPosition, point) {
                 if (state.isRecording) {
                   state.addCoordinate(point);
@@ -235,83 +479,31 @@ class _MapScreenState extends State<MapScreen> {
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 maxZoom: 19,
-                userAgentPackageName: 'com.fitterra.app',
+                userAgentPackageName: 'com.trion.app',
                 tileProvider: NetworkTileProvider(
                   headers: Map<String, String>.from({
-                    'User-Agent': 'FitTerra Mobile App v1.0.0 (contact@fitterra.com) package com.fitterra.app',
+                    'User-Agent': 'TRION Mobile App v1.0.0 (contact@trion.com) package com.trion.app',
                   }),
                 ),
               ),
               PolygonLayer(polygons: mapPolygons),
               PolylineLayer(
                 polylines: [
+                  ...completedPolylines,
                   Polyline(
                     points: state.pathPoints,
-                    color: state.injectVelocityCheat ? Colors.redAccent : const Color(0xFF00E676),
-                    strokeWidth: 4.5,
+                    strokeWidth: 6.0,
+                    borderColor: Colors.black.withOpacity(0.3),
+                    borderStrokeWidth: 1.5,
+                    strokeCap: StrokeCap.round,
+                    strokeJoin: StrokeJoin.round,
+                    gradientColors: state.injectVelocityCheat
+                        ? [Colors.redAccent, Colors.red.shade900]
+                        : [const Color(0xFF00E676), const Color(0xFF00B0FF)],
                   ),
                 ],
               ),
-              MarkerLayer(
-                markers: [
-                  // Live Current Location Marker (Blue Dot)
-                  Marker(
-                    point: state.centerLocation,
-                    width: 26,
-                    height: 26,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF007AFF).withOpacity(0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Container(
-                          width: 14,
-                          height: 14,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF007AFF),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.25),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              )
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (state.pathPoints.isNotEmpty)
-                    Marker(
-                      point: state.pathPoints.first,
-                      width: 14,
-                      height: 14,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00B0FF),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
-                    ),
-                  if (state.pathPoints.length >= 2)
-                    Marker(
-                      point: state.pathPoints.last,
-                      width: 14,
-                      height: 14,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: state.snapClosure ? const Color(0xFF00B0FF) : Colors.orangeAccent,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+              MarkerLayer(markers: mapMarkers),
             ],
           ),
 
@@ -405,6 +597,52 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
+          // 2.5 Active Challenge Selected Banner
+          if (state.activeInvitationId != null && !state.isRecording)
+            Positioned(
+              top: 120,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.directions_run, color: Colors.green, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'ROUTE CHALLENGE ACTIVE',
+                            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 1.2),
+                          ),
+                          Text(
+                            'Follow friend\'s route to earn +150 XP!',
+                            style: TextStyle(color: Colors.green.shade800, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20),
+                      onPressed: () {
+                        state.selectRouteChallenge(null);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // 3. Tapping Hint (Only when recording)
           if (state.isRecording)
             Positioned(
@@ -481,8 +719,11 @@ class _MapScreenState extends State<MapScreen> {
                 side: BorderSide(color: const Color(0xFFE040FB).withOpacity(0.4), width: 1.5),
               ),
               onPressed: () async {
-                await state.determineAndSetCurrentLocation(forceOpenSettings: true);
                 _mapController.move(state.centerLocation, 14.5);
+                await state.determineAndSetCurrentLocation(forceOpenSettings: true);
+                if (mounted) {
+                  _mapController.move(state.centerLocation, 14.5);
+                }
               },
               child: const Icon(Icons.my_location),
             ),
@@ -492,6 +733,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Builds the dashboard card allowing the player to select sport types and launch tracking.
   Widget _buildStartSessionCard(AppState state) {
     return Card(
       color: Colors.white.withOpacity(0.95),
@@ -571,6 +813,10 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Builds the tracking session metrics view overlay displaying distance/time statistics.
+  ///
+  /// [Why] Provides real-time workout stats during active recording, 
+  /// with buttons to cancel or submit completed loops.
   Widget _buildTrackingSessionCard(AppState state) {
     return Card(
       color: Colors.white.withOpacity(0.95),
@@ -673,6 +919,9 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Builds the contestation dashboard card overlay for a clicked territory cell.
+  ///
+  /// [Why] Shows current claim details, net siege captures progress meters, and defense score levels.
   Widget _buildBattleDashboardCard(BuildContext context, AppState state) {
     // Find target territory model
     final territory = state.territories.firstWhere((t) => t.id == state.targetTerritoryId, 
@@ -805,14 +1054,14 @@ class _MapScreenState extends State<MapScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Attack Preparation Progress', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                    Text('${state.attackPrepDays}/7 Days Completed', style: const TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                    Text('${state.attackPrepDays}/${state.attackPrepRequiredDays} Days Completed', style: const TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 const SizedBox(height: 6),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: LinearProgressIndicator(
-                    value: state.attackPrepDays / 7.0,
+                    value: state.attackPrepRequiredDays > 0 ? state.attackPrepDays / state.attackPrepRequiredDays.toDouble() : 0.0,
                     backgroundColor: Colors.grey.shade200,
                     valueColor: const AlwaysStoppedAnimation<Color>(Colors.orangeAccent),
                     minHeight: 6,
@@ -880,6 +1129,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Builds a small key-value stat panel inside tracking bars.
   Widget _buildStatWidget({required String label, required String value, required IconData icon}) {
     return Column(
       children: [
@@ -900,6 +1150,29 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Calculates the geometric center of a list of coordinates.
+  LatLng _calculateCentroid(List<LatLng> points) {
+    if (points.isEmpty) return const LatLng(0, 0);
+    double latSum = 0;
+    double lngSum = 0;
+    for (var p in points) {
+      latSum += p.latitude;
+      lngSum += p.longitude;
+    }
+    return LatLng(latSum / points.length, lngSum / points.length);
+  }
+
+  /// Triggers dialog showing profile details of a territory owner.
+  void _showOwnerDetailsPopup(BuildContext context, AppState state, TerritoryModel territory) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return OwnerDetailsDialog(state: state, territory: territory);
+      },
+    );
+  }
+
+  /// Displays basic alerts after completing workouts.
   void _showStatusDialog({required String title, required String message, required bool isSuccess}) {
     showDialog(
       context: context,
@@ -921,6 +1194,219 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Dialog overlay displaying the level, coins, and streak statistics of a territory owner.
+///
+/// [Why] Lets players inspect the profile of the person who claimed a territory.
+class OwnerDetailsDialog extends StatefulWidget {
+  final AppState state;
+  final TerritoryModel territory;
+
+  const OwnerDetailsDialog({
+    super.key,
+    required this.state,
+    required this.territory,
+  });
+
+  @override
+  State<OwnerDetailsDialog> createState() => _OwnerDetailsDialogState();
+}
+
+class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
+  late final Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = widget.state.api.getPlayerStats(widget.territory.ownerId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: FutureBuilder<Map<String, dynamic>>(
+        future: _future,
+        builder: (c, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container(
+              height: 200,
+              alignment: Alignment.center,
+              child: const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE040FB)),
+              ),
+            );
+          }
+
+          if (snapshot.hasError || !snapshot.hasData) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              height: 200,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Failed to load owner details',
+                    style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => Navigator.pop(c),
+                    child: const Text('CLOSE'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final profile = snapshot.data!;
+          final level = profile['level'] ?? 1;
+          final xp = profile['xp'] ?? 0;
+          final coins = profile['coins'] ?? 0;
+          final streak = profile['currentStreak'] ?? 0;
+          final color = widget.territory.parsedColor;
+
+          return Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Owner Profile Header
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: color,
+                      child: Text(
+                        widget.territory.ownerName.isNotEmpty ? widget.territory.ownerName[0].toUpperCase() : '?',
+                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.territory.ownerName.toUpperCase(),
+                            style: const TextStyle(color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'User ID: #${widget.territory.ownerId}',
+                            style: const TextStyle(color: Colors.black54, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.stars, color: Colors.amber, size: 28),
+                  ],
+                ),
+                const Divider(color: Colors.black12, height: 24),
+
+                // Stats Grid
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildPopupStat('LEVEL', '$level ($xp XP)', Icons.trending_up, Colors.blue),
+                    _buildPopupStat('STREAK', '$streak Days', Icons.local_fire_department, Colors.orange),
+                    _buildPopupStat('COINS', '$coins', Icons.monetization_on, Colors.amber),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Territory Details
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Territory ID', style: TextStyle(color: Colors.black54, fontSize: 11)),
+                          Text('#TR-${widget.territory.id}', style: const TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Territory Area', style: TextStyle(color: Colors.black54, fontSize: 11)),
+                          Text('${widget.territory.area.toStringAsFixed(0)} m²', style: const TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Defense Strength', style: TextStyle(color: Colors.black54, fontSize: 11)),
+                          Text('${widget.territory.defenseScore}/1000', style: const TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Action buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(c),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.grey.shade300),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('CLOSE', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(c);
+                          widget.state.selectTargetTerritory(widget.territory.id);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE040FB),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('SELECT TARGET', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Builds a small vertical stat panel inside owner profile details popup views.
+  Widget _buildPopupStat(String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.black54, fontSize: 8, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+      ],
     );
   }
 }

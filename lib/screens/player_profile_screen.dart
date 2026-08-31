@@ -3,6 +3,10 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import 'edit_profile_screen.dart';
 
+/// Screen displaying the active player's level, progression XP meters, claimed area land metrics, and tab navigation.
+///
+/// [Why] Serves as the central user profile cockpit showing fitness statistics, 
+/// achievements, pending invite challenges, and cosmetic store catalogs.
 class PlayerProfileScreen extends StatefulWidget {
   const PlayerProfileScreen({super.key});
 
@@ -16,7 +20,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -25,6 +29,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     super.dispose();
   }
 
+  /// Parses hex color strings into Color classes.
   Color _parseColor(String hex, {double opacity = 1.0}) {
     final clean = hex.replaceAll('#', '');
     try {
@@ -82,6 +87,12 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
               state.fetchContributionHistory();
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            onPressed: () {
+              state.logout();
+            },
+          ),
         ],
       ),
       body: Column(
@@ -116,13 +127,13 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _parseColor(state.color, opacity: 0.4),
-                            blurRadius: 12,
-                            spreadRadius: 2,
-                          )
-                        ],
+                        // boxShadow: [
+                        //   BoxShadow(
+                        //     color: _parseColor(state.color, opacity: 0.4),
+                        //     blurRadius: 12,
+                        //     spreadRadius: 2,
+                        //   )
+                        // ],
                       ),
                       child: Center(
                         child: Column(
@@ -281,6 +292,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
               Tab(text: 'MISSIONS'),
               Tab(text: 'BADGES'),
               Tab(text: 'REWARDS'),
+              Tab(text: 'FRIENDS'),
             ],
           ),
 
@@ -292,6 +304,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
                 _buildMissionsTab(state),
                 _buildAchievementsTab(state),
                 _buildRewardsTab(state),
+                _buildFriendsTab(state),
               ],
             ),
           ),
@@ -300,6 +313,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     );
   }
 
+  /// Builds standardized vertical label/value cards to present inside row headers.
   Widget _buildStatMiniCard(String label, String value, IconData icon) {
     return Column(
       children: [
@@ -317,6 +331,9 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     );
   }
 
+  /// Builds the scrollable list of active daily and weekly quest missions.
+  ///
+  /// [Why] Lets players track daily fitness objectives and claim reward items.
   Widget _buildMissionsTab(AppState state) {
     final allMissions = [...state.dailyMissions, ...state.weeklyMissions];
 
@@ -432,6 +449,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     );
   }
 
+  /// Builds a tag-like badge overlay presenting XP/Coin reward parameters.
   Widget _buildRewardBadge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -447,6 +465,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     );
   }
 
+  /// Builds the grid displaying badge achievements and trophies.
   Widget _buildAchievementsTab(AppState state) {
     if (state.achievements.isEmpty) {
       return const Center(
@@ -531,6 +550,9 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     );
   }
 
+  /// Builds the cosmetics item catalog store list.
+  ///
+  /// [Why] Lets players unlock title banners and map color themes by spending coins.
   Widget _buildRewardsTab(AppState state) {
     if (state.rewards.isEmpty) {
       return const Center(
@@ -645,6 +667,363 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
           ),
         );
       },
+    );
+  }
+
+  /// Builds the interactive list of social relationships, pending challenge invites, and requests.
+  ///
+  /// [Why] Lets users search and invite other players to challenge their recorded route activities.
+  Widget _buildFriendsTab(AppState state) {
+    final friendUsernameController = TextEditingController();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Add Friend Card
+          Card(
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.grey.shade200, width: 1),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ADD A FRIEND',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black54,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: friendUsernameController,
+                          decoration: InputDecoration(
+                            hintText: 'Enter username...',
+                            hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: _parseColor(state.color)),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: state.isLoading ? null : () async {
+                          final username = friendUsernameController.text.trim();
+                          if (username.isNotEmpty) {
+                            final success = await state.sendFriendRequest(username);
+                            if (success && mounted) {
+                              friendUsernameController.clear();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Friend request sent! ✉️'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                              state.fetchPendingFriendRequests();
+                            } else if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(state.errorMessage ?? 'User not found.'),
+                                  backgroundColor: Colors.redAccent,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        icon: const Icon(Icons.person_add, size: 16, color: Colors.black87),
+                        label: const Text('ADD', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 11)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _parseColor(state.color),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 2. Pending Requests List
+          if (state.pendingFriendRequests.isNotEmpty) ...[
+            const Text(
+              'PENDING FRIEND REQUESTS',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.black54,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: state.pendingFriendRequests.length,
+              itemBuilder: (context, index) {
+                final req = state.pendingFriendRequests[index];
+                return Card(
+                  color: Colors.white,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+                  child: ListTile(
+                    dense: true,
+                    leading: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(color: _parseColor(req.senderColor), shape: BoxShape.circle),
+                    ),
+                    title: Text(req.senderUsername, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('Sent: ${req.createdAt.substring(0, 10)}', style: const TextStyle(fontSize: 10)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.check_circle, color: Colors.green),
+                          onPressed: () async {
+                            final ok = await state.acceptFriendRequest(req.id);
+                            if (ok && mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Accepted friend request from ${req.senderUsername}! 🎉')),
+                              );
+                            }
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.cancel, color: Colors.redAccent),
+                          onPressed: () async {
+                            await state.rejectFriendRequest(req.id);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // 3. Pending Received Challenges
+          if (state.pendingRouteInvitations.isNotEmpty) ...[
+            const Text(
+              'PENDING CHALLENGES',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.black54,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: state.pendingRouteInvitations.length,
+              itemBuilder: (context, index) {
+                final challenge = state.pendingRouteInvitations[index];
+                return Card(
+                  color: Colors.white,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '${challenge.inviterUsername.toUpperCase()}\'S ROUTE CHALLENGE',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black87),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(color: Colors.purple.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                              child: Text(
+                                challenge.activityType,
+                                style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, fontSize: 9),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Distance: ${(challenge.activityDistance / 1000).toStringAsFixed(2)} km  •  Duration: ${(challenge.activityDuration / 60).toStringAsFixed(0)} mins',
+                          style: const TextStyle(color: Colors.black54, fontSize: 11),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => state.rejectRouteInvitation(challenge.id),
+                              child: const Text('DECLINE', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () async {
+                                final success = await state.acceptRouteInvitation(challenge.id);
+                                if (success && mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Challenge accepted! Go to active challenges to run it.')),
+                                  );
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _parseColor(state.color),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Text('ACCEPT', style: TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // 4. Active (Accepted) Challenges
+          if (state.activeRouteInvitations.isNotEmpty) ...[
+            const Text(
+              'ACTIVE CHALLENGES',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.black54,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: state.activeRouteInvitations.length,
+              itemBuilder: (context, index) {
+                final challenge = state.activeRouteInvitations[index];
+                final isSelected = state.activeInvitationId == challenge.id;
+                return Card(
+                  color: isSelected ? Colors.green.shade50 : Colors.white,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: isSelected ? Colors.green : Colors.grey.shade200, width: 1.5),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Run ${challenge.inviterUsername}\'s Route',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${challenge.activityType} • ${(challenge.activityDistance / 1000).toStringAsFixed(2)} km • ${(challenge.activityDuration / 60).toStringAsFixed(0)} mins',
+                                style: const TextStyle(color: Colors.black54, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            if (isSelected) {
+                              state.selectRouteChallenge(null);
+                            } else {
+                              state.selectRouteChallenge(challenge.id);
+                              // Auto-navigate to Map tab (tab index 0)
+                              state.setTab(0);
+                            }
+                          },
+                          icon: Icon(isSelected ? Icons.check : Icons.directions_run, size: 14, color: isSelected ? Colors.white : Colors.black87),
+                          label: Text(isSelected ? 'SELECTED' : 'RUN', style: TextStyle(color: isSelected ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 10)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isSelected ? Colors.green : _parseColor(state.color),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // 5. Friends List
+          const Text(
+            'MY FRIENDS',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          state.friendsList.isEmpty
+              ? Container(
+                  padding: const EdgeInsets.all(24),
+                  alignment: Alignment.center,
+                  child: const Text('Add friends to challenge them to your routes!', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: state.friendsList.length,
+                  itemBuilder: (context, index) {
+                    final friend = state.friendsList[index];
+                    return Card(
+                      color: Colors.white,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+                      child: ListTile(
+                        dense: true,
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: _parseColor(friend.color),
+                          child: Text(friend.username[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                        title: Text(friend.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('Territory Area: ${friend.totalTerritoryArea.toStringAsFixed(0)} m²', style: const TextStyle(fontSize: 10)),
+                      ),
+                    );
+                  },
+                ),
+        ],
+      ),
     );
   }
 }

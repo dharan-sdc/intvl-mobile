@@ -6,7 +6,10 @@ import 'screens/map_screen.dart';
 import 'screens/leaderboard_screen.dart';
 import 'screens/activity_feed_screen.dart';
 import 'screens/player_profile_screen.dart';
+import 'screens/club_screen.dart';
 
+/// Entry point of the mobile application.
+/// Sets up the [AppState] ChangeNotifierProvider at the top level.
 void main() {
   runApp(
     ChangeNotifierProvider(
@@ -16,13 +19,16 @@ void main() {
   );
 }
 
+/// The root Widget of the FitTerra app.
+///
+/// [Why] Initializes global styling parameters, color themes, fonts, and Material3 configuration.
 class FitTerraApp extends StatelessWidget {
   const FitTerraApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'FitTerra',
+      title: 'TRION',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.light,
@@ -41,6 +47,10 @@ class FitTerraApp extends StatelessWidget {
   }
 }
 
+/// An authentication wrapper checking the active login state.
+///
+/// [Why] Routes anonymous users to the sign-in forms while logged-in users 
+/// go directly to the primary tab dashboard.
 class AuthenticationWrapper extends StatelessWidget {
   const AuthenticationWrapper({super.key});
 
@@ -51,6 +61,9 @@ class AuthenticationWrapper extends StatelessWidget {
   }
 }
 
+/// Core tab-based shell widget containing the primary application navigation.
+///
+/// [Why] Renders bottom navigation tabs and the side navigation drawer containing club info.
 class MainTabNavigation extends StatefulWidget {
   const MainTabNavigation({super.key});
 
@@ -59,8 +72,6 @@ class MainTabNavigation extends StatefulWidget {
 }
 
 class _MainTabNavigationState extends State<MainTabNavigation> {
-  int _currentIndex = 0;
-
   final List<Widget> _screens = const [
     MapScreen(),
     LeaderboardScreen(),
@@ -74,32 +85,34 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
 
     return Scaffold(
       body: IndexedStack(
-        index: _currentIndex,
+        index: state.currentTab,
         children: _screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
+        currentIndex: state.currentTab,
         backgroundColor: Colors.white,
         selectedItemColor: const Color(0xFFE040FB),
         unselectedItemColor: Colors.grey.shade600,
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.5),
         unselectedLabelStyle: const TextStyle(fontSize: 10),
         onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
+          state.setTab(index);
           
           // Pull updates depending on selected tab
           if (index == 1) {
             state.fetchLeaderboard();
           } else if (index == 2) {
             state.fetchEvents();
+            state.fetchActivities();
           } else if (index == 3) {
             state.fetchProgression();
             state.fetchMissions();
             state.fetchAchievements();
             state.fetchRewards();
             state.fetchContributionHistory();
+            state.fetchFriends();
+            state.fetchPendingFriendRequests();
+            state.fetchRouteInvitations();
           }
         },
         items: const [
@@ -169,6 +182,18 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
                 ),
               ),
               const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.groups, color: Color(0xFFE040FB)),
+                title: const Text('Clubs', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                onTap: () {
+                  Navigator.pop(context); // Close drawer
+                  state.fetchMyClub(); // Pre-fetch club details
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ClubScreen()),
+                  );
+                },
+              ),
               
               const Spacer(),
               const Divider(color: Color(0xFFE040FB), thickness: 0.5),

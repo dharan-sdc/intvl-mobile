@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
 
+/// Screen component permitting users to modify account details, stats, or theme colors.
+///
+/// [Why] Enables profile updates for biometrics (weight, height, age) and customizable map styling colors.
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
 }
+
+class _MainEditProfileScreenState {} // dummy to check state
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -48,6 +53,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
+  /// Parses hex color strings into Color classes.
   Color _parseColor(String hex) {
     final clean = hex.replaceAll('#', '');
     final val = int.parse('FF$clean', radix: 16);
@@ -290,6 +296,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
+  /// Renders customized input field forms with theme decorators.
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,

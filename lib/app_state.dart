@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'api_service.dart';
 
+/// Global state management provider for the FitTerra application using ChangeNotifier.
+///
+/// [Why] Centralizes game engine progression stats, active GPS recording parameters, 
+/// friend invitations list, and club profiles under a single reactive data store.
+///
+/// [How] Components watch or read [AppState] via Provider, triggering widget rebuilds 
+/// when [notifyListeners] is called.
 class AppState extends ChangeNotifier {
+  /// Instance of the HTTP ApiService used to interact with backend endpoints.
   final ApiService api = ApiService();
 
   // Authentication State
@@ -16,6 +26,15 @@ class AppState extends ChangeNotifier {
   bool isLoggedIn = false;
   bool isLoading = false;
   String? errorMessage;
+  int currentTab = 0;
+
+  /// Changes the currently active navigation drawer/bar tab.
+  ///
+  /// [Why] Controls core navigation panel transitions.
+  void setTab(int index) {
+    currentTab = index;
+    notifyListeners();
+  }
 
   // Player Game Profile Stats
   int level = 1;
@@ -30,6 +49,18 @@ class AppState extends ChangeNotifier {
   int xpRequiredForCurrentLevel = 0;
   int xpRequiredForNextLevel = 500;
   int contributionScore = 0;
+
+  // Friendship & Route Challenge States
+  List<FriendModel> friendsList = [];
+  List<FriendshipRequestModel> pendingFriendRequests = [];
+  List<RouteInvitationModel> pendingRouteInvitations = [];
+  List<RouteInvitationModel> activeRouteInvitations = [];
+  List<RouteInvitationModel> sentRouteInvitations = [];
+  int? activeInvitationId;
+
+  // Club System State
+  ClubModel? myClub;
+  List<ClubSearchModel> searchClubResults = [];
 
   // Active Fitness Session State
   bool isRecording = false;
@@ -52,6 +83,9 @@ class AppState extends ChangeNotifier {
 
   StreamSubscription<Position>? _positionStreamSubscription;
 
+  /// Configures whether map tracking uses simulated tap coordinates or live phone GPS.
+  ///
+  /// [Why] Enables mock routes execution inside the emulator.
   void toggleSimulationMode(bool value) {
     isSimulationMode = value;
     notifyListeners();
@@ -68,14 +102,35 @@ class AppState extends ChangeNotifier {
   List<AchievementModel> achievements = [];
   List<RewardModel> rewards = [];
   List<ContributionHistoryModel> contributionHistory = [];
+  List<dynamic> activities = [];
   int attackPrepDays = 0;
+  int attackPrepRequiredDays = 2;
   bool attackPrepStarted = false;
   List<dynamic> territoryHistoryLogs = [];
 
   // Set default starting point for mapping simulation: e.g. Central Park, NY
   LatLng centerLocation = const LatLng(40.785091, -73.968285);
 
+  /// Resolves the current coordinates of the player to center the map.
+  ///
+  /// [Why] Moves the map camera to where the player is currently located on initialization.
+  ///
+  /// [How] Checks saved cache coordinates in [SharedPreferences], then checks Geolocator 
+  /// permissions, falling back to device's last known location and then live GPS.
   Future<void> determineAndSetCurrentLocation({bool forceOpenSettings = false}) async {
+    // 1. Try to load panned/saved location from SharedPreferences first (instant load)
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final double? savedLat = prefs.getDouble('last_lat');
+      final double? savedLng = prefs.getDouble('last_lng');
+      if (savedLat != null && savedLng != null) {
+        centerLocation = LatLng(savedLat, savedLng);
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error loading saved location: $e');
+    }
+
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
@@ -100,37 +155,76 @@ class AppState extends ChangeNotifier {
         return;
       }
 
+      // 2. Try to get device's last known location (much faster fallback if no fresh lock)
+      Position? lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null && centerLocation.latitude == 40.785091 && centerLocation.longitude == -73.968285) {
+        centerLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
+        notifyListeners();
+      }
+
+      // 3. Get fresh active GPS position
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 4),
       );
       centerLocation = LatLng(position.latitude, position.longitude);
+      
+      // Save it
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('last_lat', centerLocation.latitude);
+      await prefs.setDouble('last_lng', centerLocation.longitude);
+      
       notifyListeners();
     } catch (e) {
       debugPrint('Error getting location: $e');
     }
   }
 
+  /// Caches the current center location coordinates of the map.
+  ///
+  /// [Why] Preserves map panning configuration across app restarts.
+  Future<void> saveLastCenteredLocation(LatLng location) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('last_lat', location.latitude);
+      await prefs.setDouble('last_lng', location.longitude);
+    } catch (e) {
+      debugPrint('Error saving location: $e');
+    }
+  }
+
+  /// Sets the active server base URL configurations.
   void setBaseUrl(String url) {
     api.setBaseUrl(url);
     notifyListeners();
   }
 
+  /// Toggles the mock map route snap closure simulation setting.
   void toggleSnapClosure(bool value) {
     snapClosure = value;
     notifyListeners();
   }
 
+  /// Configures whether velocity/teleport simulation coordinates are injected to test the validation engine.
   void toggleInjectVelocityCheat(bool value) {
     injectVelocityCheat = value;
     notifyListeners();
   }
 
+  /// Updates the type of workout (Walk, Run, Cycle) selected.
   void selectActivityType(String type) {
     activityType = type;
     notifyListeners();
   }
 
   // Auth Operations
+
+  /// Performs user log-in validation and boots state properties.
+  ///
+  /// [Why] authenticates player access and fetches their stored properties on sign-in.
+  ///
+  /// [How] Hits [api.login], registers credential variables, sets [isLoggedIn] to true, 
+  /// and triggers parallel async fetches for all game models (achievements, territories, etc.).
   Future<bool> login(String emailInput, String passwordInput) async {
     _setLoading(true);
     errorMessage = null;
@@ -155,6 +249,10 @@ class AppState extends ChangeNotifier {
       fetchAchievements();
       fetchRewards();
       fetchContributionHistory();
+      fetchActivities();
+      fetchFriends();
+      fetchPendingFriendRequests();
+      fetchRouteInvitations();
       return true;
     } catch (e) {
       errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -163,28 +261,41 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<bool> register(
-    String emailInput,
-    String passwordInput,
-    String usernameInput,
-    String colorHex,
-    double weightInput,
-    double heightInput,
-    int ageInput,
-    String genderInput,
-  ) async {
+  /// Registers a new player account and signs them in.
+  ///
+  /// [Why] Onboards a new user, establishing credentials and biometric parameters.
+  ///
+  /// [How] Calls [api.register] and triggers initial game profile data fetches on success.
+  Future<bool> register({
+    required String emailInput,
+    required String passwordInput,
+    required String usernameInput,
+    required String firstName,
+    required String lastName,
+    required String dob,
+    required String profilePic,
+    required String colorHex,
+    required double weightInput,
+    required double heightInput,
+    required int ageInput,
+    required String genderInput,
+  }) async {
     _setLoading(true);
     errorMessage = null;
     try {
       final res = await api.register(
-        emailInputInput(emailInput),
-        passwordInput,
-        usernameInput,
-        colorHex,
-        weightInput,
-        heightInput,
-        ageInput,
-        genderInput,
+        email: emailInput,
+        password: passwordInput,
+        username: usernameInput,
+        firstName: firstName,
+        lastName: lastName,
+        dob: dob,
+        profilePic: profilePic,
+        color: colorHex,
+        weight: weightInput,
+        height: heightInput,
+        age: ageInput,
+        gender: genderInput,
       );
       userId = res['id'];
       username = res['username'];
@@ -205,6 +316,10 @@ class AppState extends ChangeNotifier {
       fetchAchievements();
       fetchRewards();
       fetchContributionHistory();
+      fetchActivities();
+      fetchFriends();
+      fetchPendingFriendRequests();
+      fetchRouteInvitations();
       return true;
     } catch (e) {
       errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -216,6 +331,9 @@ class AppState extends ChangeNotifier {
   // Workaround for register input
   String emailInputInput(String input) => input;
 
+  /// Logs out the user and clears all cached state arrays.
+  ///
+  /// [Why] Ends user session securely.
   void logout() {
     userId = null;
     username = null;
@@ -224,14 +342,30 @@ class AppState extends ChangeNotifier {
     territories.clear();
     leaderboard.clear();
     recentEvents.clear();
+    activities.clear();
     pathPoints.clear();
     isRecording = false;
+    friendsList.clear();
+    pendingFriendRequests.clear();
+    pendingRouteInvitations.clear();
+    activeRouteInvitations.clear();
+    sentRouteInvitations.clear();
+    activeInvitationId = null;
+    myClub = null;
+    searchClubResults.clear();
     notifyListeners();
   }
 
   Timer? _activityTimer;
 
   // GPS Recording Simulation Operations
+
+  /// Commences a route-tracking fitness session.
+  ///
+  /// [Why] Starts accumulating telemetry points and calculating distance.
+  ///
+  /// [How] Sets [isRecording] to true, clears previous path arrays, starts a periodic timer 
+  /// incrementing session duration, and binds the phone's hardware GPS listener if simulation mode is off.
   void startRecording() {
     isRecording = true;
     pathPoints.clear();
@@ -250,6 +384,12 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Establishes the reactive GPS tracking stream.
+  ///
+  /// [Why] Records latitude and longitude coordinates while running/walking.
+  ///
+  /// [How] Checks permissions, requests configuration settings, and opens a geolocator position stream 
+  /// adding coordinates to the route path and calculating incremental geodesic distances.
   void _startGpsTracking() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -277,10 +417,33 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 3, // Update every 3 meters
-    );
+    late final LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+        intervalDuration: const Duration(seconds: 5),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: "TRION Active Tracking",
+          notificationText: "Tracking your activity route in the background...",
+          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+          enableWakeLock: true,
+        ),
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+      );
+    }
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings)
         .listen((Position position) {
@@ -301,6 +464,7 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// Cancels the GPS coordinate stream.
   void _stopGpsTracking() {
     _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;
@@ -308,6 +472,12 @@ class AppState extends ChangeNotifier {
     _activityTimer = null;
   }
 
+  /// Manually injects a geographic coordinate coordinate node into the current path.
+  ///
+  /// [Why] Supports tap-to-simulate route creation.
+  ///
+  /// [How] Appends the new point and calculates distance increment (artificially 
+  /// inflating step distance if [injectVelocityCheat] is toggled).
   void addCoordinate(LatLng point) {
     if (!isRecording) return;
 
@@ -331,6 +501,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Finalizes the activity recording, performs snap closure adjustments, and submits metrics to backend.
+  ///
+  /// [Why] Completes workout tracking session and uploads path for GPS validation and area claims.
+  ///
+  /// [How] Stops GPS tracking, snaps final coordinate to first node to ensure a closed loop, 
+  /// calculates simulated duration based on distance to bypass anti-cheat speed triggers, 
+  /// calls [api.submitActivity], and syncs profile/routes lists.
   Future<Map<String, dynamic>?> completeAndSubmitActivity() async {
     _stopGpsTracking();
     if (pathPoints.length < 2 || userId == null) {
@@ -380,17 +557,9 @@ class AppState extends ChangeNotifier {
         targetTerritoryId: targetTerritoryId,
       );
 
-      // Refresh stats, notifications, territories, and progression
-      await fetchTerritories();
-      await fetchLeaderboard();
-      await fetchEvents();
-      await fetchPlayerStats();
-      await fetchNotifications();
-      await fetchProgression();
-      await fetchMissions();
-      await fetchAchievements();
-      await fetchRewards();
-      await fetchContributionHistory();
+      await fetchFriends();
+      await fetchPendingFriendRequests();
+      await fetchRouteInvitations();
 
       // Retrieve updated total area of current user
       if (res['userId'] == userId && res['status'] == 'COMPLETED') {
@@ -406,6 +575,7 @@ class AppState extends ChangeNotifier {
       isRecording = false;
       pathPoints.clear();
       targetTerritoryId = null;
+      activeInvitationId = null; // Clear challenge state on success
       _setLoading(false);
       return res;
     } catch (e) {
@@ -417,6 +587,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Cancels and discards the currently tracked workout session.
   void cancelRecording() {
     _stopGpsTracking();
     isRecording = false;
@@ -427,6 +598,12 @@ class AppState extends ChangeNotifier {
   }
 
   // Data Fetching
+
+  /// Queries all global territories for rendering H3 polygons.
+  ///
+  /// [Why] Feeds map views with boundaries of all claimed territories.
+  ///
+  /// [How] Hits [api.getTerritories], decodes coordinates paths lists, and populates [territories] list.
   Future<void> fetchTerritories() async {
     try {
       final data = await api.getTerritories();
@@ -459,6 +636,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads leaderboard players list.
+  ///
+  /// [Why] Feeds the ranking screen.
   Future<void> fetchLeaderboard() async {
     try {
       final data = await api.getLeaderboard();
@@ -480,6 +660,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Retrieves the list of recent territory events.
+  ///
+  /// [Why] Keeps player updated with other players' capture details.
   Future<void> fetchEvents() async {
     try {
       recentEvents = await api.getTerritoryEvents();
@@ -489,6 +672,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads the history list of logged activities.
+  Future<void> fetchActivities() async {
+    if (userId == null) return;
+    try {
+      activities = await api.getActivities(userId!);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading activities: $e');
+    }
+  }
+
+  /// Loads core player bio/stat metrics.
+  ///
+  /// [Why] Keeps local settings and profile data synchronized.
   Future<void> fetchPlayerStats() async {
     if (userId == null) return;
     try {
@@ -512,6 +709,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Checks the combat/siege status of a selected territory.
+  ///
+  /// [Why] Feeds map info widgets when clicking contesting zones.
   Future<void> fetchBattleStatus(int territoryId) async {
     try {
       final data = await api.getBattleStatus(territoryId);
@@ -543,11 +743,15 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads preparation state of the player against a territory.
+  ///
+  /// [Why] Updates siege preparation meters.
   Future<void> fetchAttackPrep(int territoryId) async {
     if (userId == null) return;
     try {
       final data = await api.getAttackPrep(territoryId, userId!);
       attackPrepDays = data['uniqueAttackDays'] ?? 0;
+      attackPrepRequiredDays = data['requiredDays'] ?? 2;
       attackPrepStarted = data['started'] ?? false;
       notifyListeners();
     } catch (e) {
@@ -555,17 +759,18 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Gathers notifications feed alerts from server.
   Future<void> fetchNotifications() async {
     if (userId == null) return;
     try {
       final data = await api.getNotifications(userId!);
       notifications = data.map((json) => NotificationModel(
-        id: json['id'],
-        title: json['title'],
-        message: json['message'],
-        type: json['type'],
+        id: json['id'] ?? 0,
+        title: json['title'] ?? 'Notification',
+        message: json['message'] ?? '',
+        type: json['type'] ?? 'INFO',
         isRead: json['isRead'] ?? json['read'] ?? false,
-        createdAt: DateTime.parse(json['createdAt']),
+        createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
       )).toList();
       notifyListeners();
     } catch (e) {
@@ -573,6 +778,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Marks the specified alert notification as read.
   Future<void> markNotificationRead(int notificationId) async {
     try {
       await api.markNotificationRead(notificationId);
@@ -582,6 +788,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads historical log entries for a territory.
   Future<void> fetchTerritoryHistory(int territoryId) async {
     try {
       territoryHistoryLogs = await api.getTerritoryHistory(territoryId);
@@ -591,6 +798,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Selects a territory on the map, loading its combat data.
+  ///
+  /// [Why] Triggers side panels showing details when clicking a territory cell.
   void selectTargetTerritory(int? id) {
     targetTerritoryId = id;
     if (id != null) {
@@ -600,12 +810,14 @@ class AppState extends ChangeNotifier {
     } else {
       activeBattle = null;
       attackPrepDays = 0;
+      attackPrepRequiredDays = 2;
       attackPrepStarted = false;
       territoryHistoryLogs.clear();
     }
     notifyListeners();
   }
 
+  /// Queries user level and XP milestones stats.
   Future<void> fetchProgression() async {
     if (userId == null) return;
     try {
@@ -631,6 +843,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads active daily and weekly mission lists.
   Future<void> fetchMissions() async {
     if (userId == null) return;
     try {
@@ -672,6 +885,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads player achievement unlocked statuses.
   Future<void> fetchAchievements() async {
     if (userId == null) return;
     try {
@@ -695,6 +909,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads available shop items cosmetics.
   Future<void> fetchRewards() async {
     if (userId == null) return;
     try {
@@ -714,6 +929,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads contribution XP transactions logs.
   Future<void> fetchContributionHistory() async {
     if (userId == null) return;
     try {
@@ -734,6 +950,345 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Loads active friends roster.
+  Future<void> fetchFriends() async {
+    if (userId == null) return;
+    try {
+      final list = await api.getFriends(userId!);
+      friendsList = list.map((json) => FriendModel(
+        id: json['id'],
+        username: json['username'],
+        color: json['color'],
+        totalTerritoryArea: (json['totalTerritoryArea'] as num).toDouble(),
+      )).toList();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading friends list: $e');
+    }
+  }
+
+  /// Loads incoming pending friend requests list.
+  Future<void> fetchPendingFriendRequests() async {
+    if (userId == null) return;
+    try {
+      final list = await api.getPendingFriendRequests(userId!);
+      pendingFriendRequests = list.map((json) => FriendshipRequestModel(
+        id: json['id'],
+        senderId: json['senderId'],
+        senderUsername: json['senderUsername'],
+        senderColor: json['senderColor'],
+        createdAt: json['createdAt'],
+      )).toList();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading pending friend requests: $e');
+    }
+  }
+
+  /// Dispatches a new friend invitation to username.
+  Future<bool> sendFriendRequest(String username) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.sendFriendRequest(userId!, username);
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Approves friendship request from a friend.
+  Future<bool> acceptFriendRequest(int friendshipId) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.acceptFriendRequest(userId!, friendshipId);
+      await fetchFriends();
+      await fetchPendingFriendRequests();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Declines friendship request from a friend.
+  Future<bool> rejectFriendRequest(int friendshipId) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.rejectFriendRequest(userId!, friendshipId);
+      await fetchPendingFriendRequests();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Loads all incoming and outgoing route challenge invitations.
+  Future<void> fetchRouteInvitations() async {
+    if (userId == null) return;
+    try {
+      final pendingList = await api.getPendingInvitations(userId!);
+      pendingRouteInvitations = pendingList.map((json) => mapRouteInvitation(json)).toList();
+
+      final activeList = await api.getActiveInvitations(userId!);
+      activeRouteInvitations = activeList.map((json) => mapRouteInvitation(json)).toList();
+
+      final sentList = await api.getSentInvitations(userId!);
+      sentRouteInvitations = sentList.map((json) => mapRouteInvitation(json)).toList();
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading route invitations: $e');
+    }
+  }
+
+  /// Maps json data values to a structured [RouteInvitationModel].
+  RouteInvitationModel mapRouteInvitation(dynamic json) {
+    List<LatLng> pts = [];
+    if (json['points'] != null) {
+      for (var pt in json['points']) {
+        pts.add(LatLng(pt['lat'], pt['lng']));
+      }
+    }
+    return RouteInvitationModel(
+      id: json['id'],
+      inviterId: json['inviterId'],
+      inviterUsername: json['inviterUsername'],
+      inviteeId: json['inviteeId'],
+      inviteeUsername: json['inviteeUsername'],
+      activityId: json['activityId'],
+      activityDistance: (json['activityDistance'] as num).toDouble(),
+      activityDuration: json['activityDuration'],
+      activityType: json['activityType'],
+      points: pts,
+      status: json['status'],
+      createdAt: json['createdAt'],
+      completedActivityId: json['completedActivityId'],
+    );
+  }
+
+  /// Creates and sends a route challenge invitation to a friend.
+  Future<bool> createRouteInvitation(int friendId, int activityId) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.createInvitation(userId!, friendId, activityId);
+      await fetchRouteInvitations();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Approves a pending route matching challenge.
+  Future<bool> acceptRouteInvitation(int invitationId) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.acceptInvitation(userId!, invitationId);
+      await fetchRouteInvitations();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  Future<bool> rejectRouteInvitation(int invitationId) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.rejectInvitation(userId!, invitationId);
+      await fetchRouteInvitations();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Selects an active route matching challenge for map display.
+  void selectRouteChallenge(int? invitationId) {
+    activeInvitationId = invitationId;
+    targetTerritoryId = null; // Clear territory target if challenge is selected
+    notifyListeners();
+  }
+
+  /// Fetches details of the club the user belongs to.
+  ///
+  /// [Why] Keeps local club data synchronized with backend guild statistics.
+  Future<void> fetchMyClub() async {
+    if (userId == null) return;
+    try {
+      final json = await api.getMyClub(userId!);
+      if (json == null) {
+        myClub = null;
+      } else {
+        List<ClubMemberModel> membersList = [];
+        if (json['members'] != null) {
+          for (var m in json['members']) {
+            membersList.add(ClubMemberModel(
+              userId: m['userId'],
+              username: m['username'],
+              color: m['color'],
+              role: m['role'],
+              joinedAt: m['joinedAt'],
+            ));
+          }
+        }
+        myClub = ClubModel(
+          id: json['id'],
+          name: json['name'],
+          username: json['username'],
+          inviteCode: json['inviteCode'],
+          description: json['description'] ?? '',
+          logo: json['logo'],
+          level: json['level'],
+          xp: json['xp'],
+          defensePoints: json['defensePoints'],
+          maxMembers: json['maxMembers'],
+          memberCount: json['memberCount'],
+          myRole: json['myRole'],
+          members: membersList,
+        );
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading my club: $e');
+    }
+  }
+
+  /// Creates a new public club/guild.
+  Future<bool> createClub(String name, String username, String description) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      final json = await api.createClub(userId!, name, username, description);
+      await fetchProgression(); // Sync XP deduction
+      await fetchMyClub();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Joins a club using its 6-digit invite code.
+  Future<bool> joinClub(String inviteCode) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.joinClub(userId!, inviteCode);
+      await fetchMyClub();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Leaves the current club.
+  Future<bool> leaveClub() async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.leaveClub(userId!);
+      myClub = null;
+      _setLoading(false);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Updates the role/rank of a target member.
+  Future<bool> updateMemberRole(int targetUserId, String role) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.updateMemberRole(userId!, targetUserId, role);
+      await fetchMyClub();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Expels a member from the club roster.
+  Future<bool> kickMember(int targetUserId) async {
+    if (userId == null) return false;
+    _setLoading(true);
+    errorMessage = null;
+    try {
+      await api.kickMember(userId!, targetUserId);
+      await fetchMyClub();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Searches for public clubs by keyword matching.
+  Future<void> searchClubs(String query) async {
+    try {
+      final list = await api.searchClubs(query);
+      searchClubResults = list.map<ClubSearchModel>((json) => ClubSearchModel(
+        id: json['id'],
+        name: json['name'],
+        username: json['username'],
+        level: json['level'],
+        memberCount: json['memberCount'],
+        maxMembers: json['maxMembers'],
+        description: json['description'] ?? '',
+        inviteCode: json['inviteCode'] ?? '',
+      )).toList();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error searching clubs: $e');
+    }
+  }
+
+  /// Attempts to claim a cosmetic shop reward.
   Future<bool> tryClaimReward(int rewardId) async {
     if (userId == null) return false;
     _setLoading(true);
@@ -750,11 +1305,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Toggles the global [isLoading] spinner state.
   void _setLoading(bool val) {
     isLoading = val;
     notifyListeners();
   }
 
+  /// Updates local user profile bio data on successful server validation.
   Future<bool> updateUserProfile({
     required String usernameInput,
     required String colorHex,
@@ -804,6 +1361,7 @@ class TerritoryModel {
   final int ownerId;
   final String ownerName;
   final String color;
+  final Color parsedColor;
   final double area;
   final int level;
   final int defenseScore;
@@ -820,7 +1378,17 @@ class TerritoryModel {
     required this.defenseScore,
     required this.status,
     required this.paths,
-  });
+  }) : parsedColor = _parseHexColor(color);
+
+  static Color _parseHexColor(String hex) {
+    final clean = hex.replaceAll('#', '');
+    try {
+      final val = int.parse('FF$clean', radix: 16);
+      return Color(val);
+    } catch (_) {
+      return Colors.pink;
+    }
+  }
 }
 
 class LeaderboardEntryModel {
@@ -974,5 +1542,137 @@ class ContributionHistoryModel {
     required this.sourceId,
     required this.amount,
     required this.createdAt,
+  });
+}
+
+class FriendModel {
+  final int id;
+  final String username;
+  final String color;
+  final double totalTerritoryArea;
+
+  FriendModel({
+    required this.id,
+    required this.username,
+    required this.color,
+    required this.totalTerritoryArea,
+  });
+}
+
+class FriendshipRequestModel {
+  final int id;
+  final int senderId;
+  final String senderUsername;
+  final String senderColor;
+  final String createdAt;
+
+  FriendshipRequestModel({
+    required this.id,
+    required this.senderId,
+    required this.senderUsername,
+    required this.senderColor,
+    required this.createdAt,
+  });
+}
+
+class RouteInvitationModel {
+  final int id;
+  final int inviterId;
+  final String inviterUsername;
+  final int inviteeId;
+  final String inviteeUsername;
+  final int activityId;
+  final double activityDistance;
+  final int activityDuration;
+  final String activityType;
+  final List<LatLng> points;
+  final String status;
+  final String createdAt;
+  final int? completedActivityId;
+
+  RouteInvitationModel({
+    required this.id,
+    required this.inviterId,
+    required this.inviterUsername,
+    required this.inviteeId,
+    required this.inviteeUsername,
+    required this.activityId,
+    required this.activityDistance,
+    required this.activityDuration,
+    required this.activityType,
+    required this.points,
+    required this.status,
+    required this.createdAt,
+    this.completedActivityId,
+  });
+}
+
+class ClubModel {
+  final int id;
+  final String name;
+  final String username;
+  final String inviteCode;
+  final String description;
+  final String? logo;
+  final int level;
+  final int xp;
+  final int defensePoints;
+  final int maxMembers;
+  final int memberCount;
+  final String? myRole;
+  final List<ClubMemberModel> members;
+
+  ClubModel({
+    required this.id,
+    required this.name,
+    required this.username,
+    required this.inviteCode,
+    required this.description,
+    this.logo,
+    required this.level,
+    required this.xp,
+    required this.defensePoints,
+    required this.maxMembers,
+    required this.memberCount,
+    this.myRole,
+    required this.members,
+  });
+}
+
+class ClubMemberModel {
+  final int userId;
+  final String username;
+  final String color;
+  final String role;
+  final String joinedAt;
+
+  ClubMemberModel({
+    required this.userId,
+    required this.username,
+    required this.color,
+    required this.role,
+    required this.joinedAt,
+  });
+}
+
+class ClubSearchModel {
+  final int id;
+  final String name;
+  final String username;
+  final int level;
+  final int memberCount;
+  final int maxMembers;
+  final String description;
+  final String inviteCode;
+
+  ClubSearchModel({
+    required this.id,
+    required this.name,
+    required this.username,
+    required this.level,
+    required this.memberCount,
+    required this.maxMembers,
+    required this.description,
+    required this.inviteCode,
   });
 }

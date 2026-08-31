@@ -70,5 +70,9 @@
 	<string>This app requires access to your location to track your walks and runs for territory claiming.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app requires access to your location in the background to track your routes and game activity.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 </dict>
 </plist>

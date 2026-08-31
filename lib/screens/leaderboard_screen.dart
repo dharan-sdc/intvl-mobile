@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
 
+/// Screen component displaying top player rankings based on total claimed territory area.
+///
+/// [Why] Promotes game-wide competition by ranking players on a podium and leaderboard list.
 class LeaderboardScreen extends StatelessWidget {
   const LeaderboardScreen({super.key});
 
@@ -135,6 +138,7 @@ class LeaderboardScreen extends StatelessWidget {
     );
   }
 
+  /// Builds a podium bar column representing 1st, 2nd, or 3rd place.
   Widget _buildPodiumColumn({
     required String username,
     required double score,
@@ -179,6 +183,7 @@ class LeaderboardScreen extends StatelessWidget {
     );
   }
 
+  /// Maps rankings (1, 2, 3) to gold, silver, bronze color tokens.
   Color _getRankColor(int rank) {
     if (rank == 1) return const Color(0xFFFFD54F);
     if (rank == 2) return const Color(0xFFB0BEC5);

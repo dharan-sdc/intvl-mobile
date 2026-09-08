@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
 import 'dart:ui';
 import '../app_state.dart';
 
 /// Screen component providing welcome onboarding, log-in authentication, and new player registration forms.
 ///
-/// [Why] Handles all entry flows into the FitTerra application environment.
+/// [Why] Handles all entry flows into the Trion application environment with a modern, 
+/// frictionless user registration and login experience.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -17,11 +19,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _loginFormKey = GlobalKey<FormState>();
   final _registerFormKey = GlobalKey<FormState>();
 
-  // Text Controllers
-  final _serverUrlController = TextEditingController();
+  // Login Controllers
   final _loginEmailController = TextEditingController();
   final _loginPasswordController = TextEditingController();
 
+  // Register Controllers
   final _registerFirstNameController = TextEditingController();
   final _registerLastNameController = TextEditingController();
   final _registerEmailController = TextEditingController();
@@ -30,15 +32,16 @@ class _LoginScreenState extends State<LoginScreen> {
   final _registerConfirmPasswordController = TextEditingController();
   final _registerDobController = TextEditingController();
   final _registerAgeController = TextEditingController();
-  final _registerWeightController = TextEditingController();
-  final _registerHeightController = TextEditingController();
-  final _registerProfilePicController = TextEditingController();
+  final _registerWeightController = TextEditingController(text: '70.0');
+  final _registerHeightController = TextEditingController(text: '175.0');
+  final _registerProfilePicController = TextEditingController(text: 'preset:Runner');
 
   String _selectedGender = 'Male';
-  final List<String> _genders = ['Male', 'Female', 'Other', 'Prefer not to say'];
-  int _currentRegisterStep = 1;
+  final List<String> _genders = ['Male', 'Female', 'Non-Binary', 'Prefer not to say'];
+  
+  // Registration Section (1: Account Credentials, 2: Athlete Persona & Stats)
+  int _currentRegisterSection = 1;
   bool _isLogin = true;
-  bool _showServerSettings = false;
   
   // Password Visibility toggles
   bool _obscureLoginPassword = true;
@@ -46,36 +49,34 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscureRegisterConfirmPassword = true;
 
   // Onboarding settings
-  bool _showOnboarding = true;
+  bool _dismissedOnboardingInSession = false;
   final PageController _pageController = PageController();
   int _currentSlide = 0;
 
-  // Profile Picture state
+  // Profile Avatar state
   String _selectedAvatar = 'Runner';
+  final List<Map<String, dynamic>> _avatarPresets = [
+    {'name': 'Runner', 'icon': Icons.directions_run, 'label': 'Runner'},
+    {'name': 'Cyclist', 'icon': Icons.directions_bike, 'label': 'Cyclist'},
+    {'name': 'Shield', 'icon': Icons.shield_outlined, 'label': 'Guardian'},
+    {'name': 'Flame', 'icon': Icons.local_fire_department, 'label': 'Blaze'},
+    {'name': 'Bolt', 'icon': Icons.bolt, 'label': 'Speed'},
+    {'name': 'Crown', 'icon': Icons.emoji_events_outlined, 'label': 'Champion'},
+  ];
 
   // Custom Color Selection for Registration
-  String _selectedColor = '#E040FB'; // default violet
+  String _selectedColor = '#E040FB'; // default neon violet
   final List<String> _colors = [
     '#E040FB', // Neon Violet
     '#FF007F', // Neon Pink
     '#00E5FF', // Neon Cyan
     '#39FF14', // Neon Green
-    '#FFEB3B', // Neon Yellow
-    '#FF5722', // Neon Red/Orange
+    '#FFD600', // Neon Gold
+    '#FF5722', // Neon Sunset Orange
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _registerProfilePicController.text = "preset:Runner";
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _serverUrlController.text = Provider.of<AppState>(context, listen: false).api.baseUrl;
-    });
-  }
-
-  @override
   void dispose() {
-    _serverUrlController.dispose();
     _loginEmailController.dispose();
     _loginPasswordController.dispose();
     _registerFirstNameController.dispose();
@@ -99,7 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Color(int.parse('FF$clean', radix: 16));
   }
 
-  /// Computes chronological age from a selected birthday date relative to current time.
+  /// Computes chronological age from a selected birthday date.
   int _calculateAge(DateTime birthDate) {
     DateTime today = DateTime.now();
     int age = today.year - birthDate.year;
@@ -117,22 +118,20 @@ class _LoginScreenState extends State<LoginScreen> {
     return age;
   }
 
-  /// Displays the calendar date picker modal and records values on select.
-  ///
-  /// [Why] Captures player birthday to auto-fill the age stat fields.
+  /// Displays the calendar date picker modal and records values.
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)), // default to 18 years ago
+      initialDate: DateTime.now().subtract(const Duration(days: 365 * 22)),
       firstDate: DateTime(1920),
       lastDate: DateTime.now(),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFFE040FB), // Header background color
-              onPrimary: Colors.white, // Header text color
-              onSurface: Color(0xFF1E1E24), // Body text color
+              primary: Color(0xFFE040FB),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF1E1E24),
             ),
           ),
           child: child!,
@@ -143,9 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         final formattedDate = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
         _registerDobController.text = formattedDate;
-        
-        // Calculate age
-        int calculatedAge = _calculateAge(picked);
+        final calculatedAge = _calculateAge(picked);
         _registerAgeController.text = calculatedAge.toString();
       });
     }
@@ -156,20 +153,20 @@ class _LoginScreenState extends State<LoginScreen> {
     final state = Provider.of<AppState>(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FD), // Very light premium canvas
+      backgroundColor: const Color(0xFFF8F9FD),
       body: SafeArea(
         child: Stack(
           children: [
-            // Elegant background glowing elements for modern visual depth
+            // Ambient glowing background halos
             Positioned(
               top: -80,
               left: -80,
               child: Container(
-                width: 250,
-                height: 250,
+                width: 260,
+                height: 260,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFFE040FB).withOpacity(0.04),
+                  color: const Color(0xFFE040FB).withValues(alpha: 0.05),
                 ),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
@@ -185,7 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 height: 300,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFF00E5FF).withOpacity(0.04),
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.05),
                 ),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 70, sigmaY: 70),
@@ -196,39 +193,38 @@ class _LoginScreenState extends State<LoginScreen> {
 
             // Main View
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
-              child: _showOnboarding
+              duration: const Duration(milliseconds: 350),
+              child: (!state.hasSeenWelcomeOnboarding && !_dismissedOnboardingInSession)
                   ? _buildOnboardingView()
                   : _buildLoginRegisterView(state),
             ),
 
-            // Frosted premium Loading Overlay
+            // Premium Frosted Loading Overlay
             if (state.isLoading)
               Positioned.fill(
                 child: ClipRect(
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0),
                     child: Container(
-                      color: Colors.white.withOpacity(0.4),
+                      color: Colors.white.withValues(alpha: 0.5),
                       child: Center(
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: Colors.black.withOpacity(0.04)),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
+                                color: Colors.black.withValues(alpha: 0.08),
                                 blurRadius: 30,
                                 offset: const Offset(0, 10),
                               )
                             ],
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
-                          child: Column(
+                          padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+                          child: const Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const SizedBox(
+                              SizedBox(
                                 height: 44,
                                 width: 44,
                                 child: CircularProgressIndicator(
@@ -236,8 +232,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE040FB)),
                                 ),
                               ),
-                              const SizedBox(height: 24),
-                              const Text(
+                              SizedBox(height: 20),
+                              Text(
                                 'CONNECTING TO TRION',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
@@ -246,12 +242,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                   color: Color(0xFF1E1E24),
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              SizedBox(height: 6),
                               Text(
-                                'Syncing profile and world GPS cells...',
+                                'Syncing athlete profile & live map...',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey.shade500,
+                                  color: Colors.grey,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -269,38 +265,34 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // --- WELCOME/ONBOARDING VIEW ---
+  // --- WELCOME/ONBOARDING CAROUSEL VIEW ---
   Widget _buildOnboardingView() {
     return Stack(
       children: [
         PageView(
           controller: _pageController,
-          onPageChanged: (idx) {
-            setState(() {
-              _currentSlide = idx;
-            });
-          },
+          onPageChanged: (idx) => setState(() => _currentSlide = idx),
           children: [
             _buildOnboardingSlide(
               title: 'TRION',
-              subtitle: 'TERRITORY RUNNING INTERACTION OWNERSHIP NETWORK',
-              description: 'Lace up your shoes, step outside, and transform your real-world walks, runs, and rides into a battle for global territories.',
-              icon: Icons.explore_outlined,
-              color: const Color(0xFFE040FB),
-            ),
-            _buildOnboardingSlide(
-              title: 'CLOSE LOOPS',
-              subtitle: 'CONQUER NEIGHBORHOODS',
-              description: 'Every activity maps your route in real time. Complete a closed-loop route to automatically capture the enclosed cells and build your territory.',
-              icon: Icons.map_outlined,
+              subtitle: 'GLOBAL GPS TERRITORY CONQUEST',
+              description: 'Lace up your shoes, step outside, and transform your real-world walks, runs, and rides into a tactical territory battle.',
+              imageAsset: 'assets/logo.png',
               color: const Color(0xFF00E5FF),
             ),
             _buildOnboardingSlide(
-              title: 'CLUBS & DEFENSE',
-              subtitle: 'RISE TO DOMINANCE TOGETHER',
-              description: 'Hit Level 10 to form or join a Club. Pool your XP together, gain Defense Points (DP), and guard your territories from rival attackers.',
-              icon: Icons.groups_outlined,
-              color: const Color(0xFFFF007F),
+              title: 'CLOSE LOOPS',
+              subtitle: 'CLAIM H3 HEXAGON CELLS',
+              description: 'Every activity maps your route in real time. Enclose an area in a loop to conquer hexagonal territory for your profile.',
+              icon: Icons.radar,
+              color: const Color(0xFFE040FB),
+            ),
+            _buildOnboardingSlide(
+              title: 'CAMPAIGNS & CLUBS',
+              subtitle: 'RISE TOGETHER ON LEADERBOARDS',
+              description: 'Join community awareness runs, squad up with your club, and unlock glowing Star Trophy badges as you level up.',
+              icon: Icons.military_tech_outlined,
+              color: const Color(0xFF39FF14),
             ),
           ],
         ),
@@ -311,23 +303,16 @@ class _LoginScreenState extends State<LoginScreen> {
           right: 16,
           child: TextButton(
             onPressed: () {
-              setState(() => _showOnboarding = false);
+              final state = Provider.of<AppState>(context, listen: false);
+              state.markWelcomeOnboardingSeen(seen: true);
+              setState(() => _dismissedOnboardingInSession = true);
             },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.grey.shade600,
-            ),
-            child: const Text(
-              'SKIP',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                letterSpacing: 1,
-              ),
-            ),
+            style: TextButton.styleFrom(foregroundColor: Colors.grey.shade600),
+            child: const Text('SKIP', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1)),
           ),
         ),
 
-        // Bottom Navigation Controllers
+        // Bottom Controls
         Positioned(
           bottom: 40,
           left: 24,
@@ -353,7 +338,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Giant Action Button
+              // Action Button
               SizedBox(
                 width: double.infinity,
                 child: _buildSubmitButton(
@@ -361,11 +346,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: () {
                     if (_currentSlide < 2) {
                       _pageController.nextPage(
-                        duration: const Duration(milliseconds: 355),
+                        duration: const Duration(milliseconds: 300),
                         curve: Curves.easeInOut,
                       );
                     } else {
-                      setState(() => _showOnboarding = false);
+                      final state = Provider.of<AppState>(context, listen: false);
+                      state.markWelcomeOnboardingSeen(seen: true);
+                      setState(() => _dismissedOnboardingInSession = true);
                     }
                   },
                 ),
@@ -381,7 +368,8 @@ class _LoginScreenState extends State<LoginScreen> {
     required String title,
     required String subtitle,
     required String description,
-    required IconData icon,
+    IconData? icon,
+    String? imageAsset,
     required Color color,
   }) {
     return Padding(
@@ -390,10 +378,10 @@ class _LoginScreenState extends State<LoginScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(32),
-          border: Border.all(color: Colors.black.withOpacity(0.03)),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.02),
+              color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 30,
               offset: const Offset(0, 10),
             ),
@@ -403,15 +391,36 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.08),
-                shape: BoxShape.circle,
+            if (imageAsset != null) ...[
+              Container(
+                width: 100,
+                height: 100,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.25),
+                      blurRadius: 25,
+                      offset: const Offset(0, 8),
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Image.asset(imageAsset, fit: BoxFit.contain),
               ),
-              child: Icon(icon, size: 64, color: color),
-            ),
-            const SizedBox(height: 36),
+            ] else if (icon != null) ...[
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 64, color: color),
+              ),
+            ],
+            const SizedBox(height: 32),
             Text(
               title,
               style: const TextStyle(
@@ -431,7 +440,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 letterSpacing: 1.5,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             Text(
               description,
               textAlign: TextAlign.center,
@@ -448,69 +457,36 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // --- LOGIN/REGISTER FLOW VIEW ---
+  // --- LOGIN & REGISTRATION ROOT VIEW ---
   Widget _buildLoginRegisterView(AppState state) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Back button to return to Onboarding welcome notes
-          Align(
-            alignment: Alignment.centerLeft,
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.black54),
-              onPressed: () {
-                setState(() => _showOnboarding = true);
-              },
-            ),
-          ),
-          const SizedBox(height: 4),
-
-          // Glowing Premium Startup Logo & Header Design
+          // Header Logo & Branding
           Center(
             child: Column(
               children: [
-                // Modern Geometric Logo Badge
                 Container(
-                  width: 72,
-                  height: 72,
+                  width: 76,
+                  height: 76,
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(22),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFE040FB).withOpacity(0.1),
-                        blurRadius: 20,
+                        color: const Color(0xFFE040FB).withValues(alpha: 0.2),
+                        blurRadius: 24,
                         offset: const Offset(0, 8),
                         spreadRadius: 2,
                       ),
                     ],
                   ),
-                  child: Center(
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFE040FB), Color(0xFF00E5FF)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.radar,
-                          color: Colors.white,
-                          size: 26,
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: Image.asset('assets/logo.png', fit: BoxFit.contain),
                 ),
-                const SizedBox(height: 20),
-                // Premium Kerned Typographic Logo
+                const SizedBox(height: 16),
                 const Text(
                   'T R I O N',
                   style: TextStyle(
@@ -520,8 +496,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     letterSpacing: 6,
                   ),
                 ),
-                const SizedBox(height: 8),
-                // Crisp Tagline
+                const SizedBox(height: 6),
                 Text(
                   'Lace up. Explore. Conquer.',
                   style: TextStyle(
@@ -534,18 +509,17 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 36),
+          const SizedBox(height: 28),
 
-          // Segment Selector Toggle (Premium iOS Sliding Pill Style)
+          // Segment Selector Toggle (Sleek iOS Sliding Pill)
           Container(
-            height: 50,
+            height: 48,
             decoration: BoxDecoration(
-              color: const Color(0xFFF1F3F9),
+              color: const Color(0xFFECEEF5),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Stack(
               children: [
-                // Animated sliding selection box
                 AnimatedAlign(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeInOut,
@@ -559,8 +533,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.06),
-                            blurRadius: 10,
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
                         ],
@@ -568,13 +542,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
-                // Text items
                 Row(
                   children: [
                     Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: () => setState(() => _isLogin = true),
+                        onTap: () {
+                          state.clearErrorMessage();
+                          setState(() => _isLogin = true);
+                        },
                         child: Center(
                           child: Text(
                             'LOGIN',
@@ -591,7 +567,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: () => setState(() => _isLogin = false),
+                        onTap: () {
+                          state.clearErrorMessage();
+                          setState(() => _isLogin = false);
+                        },
                         child: Center(
                           child: Text(
                             'REGISTER',
@@ -610,15 +589,16 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
+          // Error message banner
           if (state.errorMessage != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              margin: const EdgeInsets.only(bottom: 20),
+              margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.06),
-                border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+                color: Colors.red.withValues(alpha: 0.08),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Row(
@@ -635,108 +615,46 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+                  GestureDetector(
+                    onTap: () => state.clearErrorMessage(),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(Icons.close, color: Colors.redAccent, size: 18),
+                    ),
+                  ),
                 ],
               ),
             ),
 
-          // Interactive Form Card
+          // Interactive Form Card Container
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.black.withOpacity(0.04)),
+              border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF1E1E24).withOpacity(0.03),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(22),
             child: AnimatedCrossFade(
               duration: const Duration(milliseconds: 300),
-              firstCurve: Curves.easeInOut,
-              secondCurve: Curves.easeInOut,
               crossFadeState: _isLogin ? CrossFadeState.showFirst : CrossFadeState.showSecond,
               firstChild: _buildLoginForm(state),
               secondChild: _buildRegisterForm(state),
             ),
           ),
           const SizedBox(height: 24),
-
-          // Advanced Server URL Settings
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.black.withOpacity(0.03)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.01),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.settings_ethernet, color: Color(0xFFE040FB)),
-                  title: const Text(
-                    'Advanced Server Settings',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E1E24)),
-                  ),
-                  trailing: Icon(
-                    _showServerSettings ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.grey.shade600,
-                  ),
-                  onTap: () {
-                    setState(() {
-                      _showServerSettings = !_showServerSettings;
-                    });
-                  },
-                ),
-                if (_showServerSettings)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _serverUrlController,
-                            label: 'Server Base URL',
-                            icon: Icons.link,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE040FB).withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: IconButton(
-                            onPressed: () {
-                              state.api.setBaseUrl(_serverUrlController.text.trim());
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Server endpoint set to: ${state.api.baseUrl}')),
-                              );
-                            },
-                            icon: const Icon(Icons.save, color: Color(0xFFE040FB)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
         ],
       ),
     );
   }
 
+  // --- LOGIN FORM ---
   Widget _buildLoginForm(AppState state) {
     return Form(
       key: _loginFormKey,
@@ -744,15 +662,12 @@ class _LoginScreenState extends State<LoginScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           _buildTextField(
             controller: _loginEmailController,
-            label: 'Email Address / Mobile',
-            icon: Icons.email_outlined,
-            validator: (val) {
-              if (val == null || val.isEmpty) return 'Email or mobile required';
-              return null;
-            },
+            label: 'Email or Username',
+            icon: Icons.alternate_email,
+            validator: (val) => (val == null || val.trim().isEmpty) ? 'Email or username is required' : null,
           ),
           const SizedBox(height: 16),
           _buildTextField(
@@ -761,18 +676,29 @@ class _LoginScreenState extends State<LoginScreen> {
             icon: Icons.lock_outline,
             obscure: _obscureLoginPassword,
             showPasswordToggle: true,
-            onTogglePassword: () {
-              setState(() {
-                _obscureLoginPassword = !_obscureLoginPassword;
-              });
-            },
-            validator: (val) => val == null || val.isEmpty ? 'Password required' : null,
+            onTogglePassword: () => setState(() => _obscureLoginPassword = !_obscureLoginPassword),
+            validator: (val) => (val == null || val.isEmpty) ? 'Password is required' : null,
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 26),
           _buildSubmitButton(
             label: 'ENTER GAME',
             onPressed: () async {
               if (_loginFormKey.currentState!.validate()) {
+                final isGpsOn = await Geolocator.isLocationServiceEnabled();
+                if (!isGpsOn && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Location is turned off. Enable GPS for live territory tracking.'),
+                      action: SnackBarAction(
+                        label: 'SETTINGS',
+                        textColor: const Color(0xFF00E5FF),
+                        onPressed: () => Geolocator.openLocationSettings(),
+                      ),
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                }
+
                 final success = await state.login(
                   _loginEmailController.text.trim(),
                   _loginPasswordController.text,
@@ -785,12 +711,12 @@ class _LoginScreenState extends State<LoginScreen> {
               }
             },
           ),
-          const SizedBox(height: 6),
         ],
       ),
     );
   }
 
+  // --- REDESIGNED STREAMLINED REGISTRATION FORM ---
   Widget _buildRegisterForm(AppState state) {
     return Form(
       key: _registerFormKey,
@@ -798,270 +724,330 @@ class _LoginScreenState extends State<LoginScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(height: 6),
-          // Sleek progress bar wizard indicator (1 of 3, 2 of 3, 3 of 3)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          // Step Header Chips (1. Account Details  |  2. Persona & Stats)
+          Row(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _currentRegisterStep == 1
-                        ? 'Step 1: Account setup'
-                        : _currentRegisterStep == 2
-                            ? 'Step 2: Profile identity'
-                            : 'Step 3: Health & custom colors',
-                    style: const TextStyle(
-                      color: Color(0xFF1E1E24),
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _currentRegisterSection = 1),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _currentRegisterSection == 1 
+                          ? const Color(0xFFE040FB).withValues(alpha: 0.12)
+                          : const Color(0xFFF8F9FD),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _currentRegisterSection == 1 
+                            ? const Color(0xFFE040FB)
+                            : Colors.transparent,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.person_outline,
+                          size: 16,
+                          color: _currentRegisterSection == 1 ? const Color(0xFFE040FB) : Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '1. Credentials',
+                          style: TextStyle(
+                            color: _currentRegisterSection == 1 ? const Color(0xFFE040FB) : Colors.grey.shade600,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Text(
-                    '$_currentRegisterStep of 3',
-                    style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+                ),
               ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: _currentRegisterStep / 3,
-                  backgroundColor: const Color(0xFFF1F3F9),
-                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE040FB)),
-                  minHeight: 4,
+              const SizedBox(width: 10),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    if (_validateSection1()) {
+                      setState(() => _currentRegisterSection = 2);
+                    }
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _currentRegisterSection == 2 
+                          ? const Color(0xFF00E5FF).withValues(alpha: 0.12)
+                          : const Color(0xFFF8F9FD),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _currentRegisterSection == 2 
+                            ? const Color(0xFF00E5FF)
+                            : Colors.transparent,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.palette_outlined,
+                          size: 16,
+                          color: _currentRegisterSection == 2 ? const Color(0xFF00E5FF) : Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '2. Persona',
+                          style: TextStyle(
+                            color: _currentRegisterSection == 2 ? const Color(0xFF00E5FF) : Colors.grey.shade600,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // --- STEP 1: PERSONAL & CONTACTS ---
-          if (_currentRegisterStep == 1) ...[
+          // SECTION 1: ACCOUNT CREDENTIALS
+          if (_currentRegisterSection == 1) ...[
+            // First & Last Name
             Row(
               children: [
                 Expanded(
                   child: _buildTextField(
                     controller: _registerFirstNameController,
                     label: 'First Name',
-                    icon: Icons.person_outline,
-                    validator: (val) => val == null || val.isEmpty ? 'First name required' : null,
+                    icon: Icons.badge_outlined,
+                    validator: (val) => (val == null || val.trim().isEmpty) ? 'Required' : null,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: _buildTextField(
                     controller: _registerLastNameController,
                     label: 'Last Name',
-                    icon: Icons.person_outline,
-                    validator: (val) => val == null || val.isEmpty ? 'Last name required' : null,
+                    icon: Icons.badge_outlined,
+                    validator: (val) => (val == null || val.trim().isEmpty) ? 'Required' : null,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+
+            // Username
             _buildTextField(
               controller: _registerUsernameController,
-              label: 'Username / User ID',
+              label: 'Username (@handle)',
               icon: Icons.alternate_email,
               validator: (val) {
-                if (val == null || val.isEmpty) return 'Username required';
+                if (val == null || val.trim().isEmpty) return 'Username is required';
                 final regex = RegExp(r'^[a-zA-Z0-9_]{3,20}$');
-                if (!regex.hasMatch(val)) {
+                if (!regex.hasMatch(val.trim())) {
                   return 'Use letters, digits, and underscores (3-20 chars)';
                 }
                 return null;
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+
+            // Email
             _buildTextField(
               controller: _registerEmailController,
-              label: 'Email Address / Mobile Number',
-              icon: Icons.phone_android,
+              label: 'Email Address',
+              icon: Icons.email_outlined,
+              keyboardType: TextInputType.emailAddress,
               validator: (val) {
-                if (val == null || val.isEmpty) return 'Email or mobile required';
-                final mobileReg = RegExp(r'^\+?[0-9]{7,15}$');
+                if (val == null || val.trim().isEmpty) return 'Email is required';
                 final emailReg = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-                if (!mobileReg.hasMatch(val) && !emailReg.hasMatch(val)) {
-                  return 'Enter a valid email or mobile number';
+                if (!emailReg.hasMatch(val.trim())) {
+                  return 'Enter a valid email address';
                 }
                 return null;
               },
             ),
-            const SizedBox(height: 28),
-            _buildSubmitButton(
-              label: 'NEXT STEP',
-              onPressed: () {
-                if (_registerFormKey.currentState!.validate()) {
-                  setState(() {
-                    _currentRegisterStep = 2;
-                  });
-                }
-              },
-            ),
-          ]
+            const SizedBox(height: 14),
 
-          // --- STEP 2: SECURITY & PROFILE pic, dob ---
-          else if (_currentRegisterStep == 2) ...[
+            // Password
             _buildTextField(
               controller: _registerPasswordController,
-              label: 'Password',
+              label: 'Password (min 4 chars)',
               icon: Icons.lock_outline,
               obscure: _obscureRegisterPassword,
               showPasswordToggle: true,
-              onTogglePassword: () {
-                setState(() {
-                  _obscureRegisterPassword = !_obscureRegisterPassword;
-                });
-              },
-              validator: (val) => val == null || val.length < 4 ? 'Password must be at least 4 characters' : null,
+              onTogglePassword: () => setState(() => _obscureRegisterPassword = !_obscureRegisterPassword),
+              validator: (val) => (val == null || val.length < 4) ? 'Must be at least 4 characters' : null,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+
+            // Confirm Password
             _buildTextField(
               controller: _registerConfirmPasswordController,
               label: 'Confirm Password',
               icon: Icons.lock_clock_outlined,
               obscure: _obscureRegisterConfirmPassword,
               showPasswordToggle: true,
-              onTogglePassword: () {
-                setState(() {
-                  _obscureRegisterConfirmPassword = !_obscureRegisterConfirmPassword;
-                });
-              },
+              onTogglePassword: () => setState(() => _obscureRegisterConfirmPassword = !_obscureRegisterConfirmPassword),
               validator: (val) {
                 if (val == null || val.isEmpty) return 'Please confirm password';
                 if (val != _registerPasswordController.text) return 'Passwords do not match';
                 return null;
               },
             ),
-            const SizedBox(height: 16),
-            // Date of Birth Input (with date picker popup trigger)
-            GestureDetector(
-              onTap: () => _selectDate(context),
-              child: AbsorbPointer(
-                child: _buildTextField(
-                  controller: _registerDobController,
-                  label: 'Date of Birth',
-                  icon: Icons.cake_outlined,
-                  validator: (val) {
-                    if (val == null || val.isEmpty) return 'Date of birth is required';
-                    return null;
-                  },
-                ),
-              ),
+            const SizedBox(height: 24),
+
+            // Next / Continue to Persona
+            _buildSubmitButton(
+              label: 'NEXT: ATHLETE PERSONA',
+              onPressed: () {
+                state.clearErrorMessage();
+                if (_validateSection1()) {
+                  setState(() => _currentRegisterSection = 2);
+                }
+              },
             ),
-            const SizedBox(height: 20),
-            // Preset avatar selector
+          ]
+
+          // SECTION 2: ATHLETE PERSONA & MAP CUSTOMIZATION
+          else ...[
+            // Avatar Selector
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'CHOOSE PROFILE AVATAR',
+                const Text(
+                  'CHOOSE AVATAR',
                   style: TextStyle(
-                    color: Colors.grey.shade600,
+                    color: Color(0xFF1E1E24),
                     fontSize: 11,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w900,
                     letterSpacing: 0.5,
                   ),
                 ),
                 Text(
-                  '(OPTIONAL)',
-                  style: TextStyle(
-                    color: Colors.grey.shade400,
-                    fontSize: 10,
+                  _selectedAvatar.toUpperCase(),
+                  style: const TextStyle(
+                    color: Color(0xFFE040FB),
+                    fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildAvatarOption('Runner', Icons.directions_run),
-                _buildAvatarOption('Cyclist', Icons.directions_bike),
-                _buildAvatarOption('Shield', Icons.shield),
-                _buildAvatarOption('Flame', Icons.local_fire_department),
-              ],
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _avatarPresets.map((preset) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: _buildAvatarOption(preset['name'], preset['icon'], preset['label']),
+                  );
+                }).toList(),
+              ),
             ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: _registerProfilePicController,
-              label: 'Or Custom Profile Pic Image URL (Optional)',
-              icon: Icons.insert_link,
-            ),
-            const SizedBox(height: 28),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      setState(() {
-                        _currentRegisterStep = 1;
-                      });
-                    },
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFE040FB), width: 1.5),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      foregroundColor: const Color(0xFFE040FB),
-                    ),
-                    child: const Text(
-                      'BACK',
-                      style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: _buildSubmitButton(
-                    label: 'CONTINUE',
-                    onPressed: () {
-                      if (_registerFormKey.currentState!.validate()) {
-                        setState(() {
-                          _currentRegisterStep = 3;
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ]
+            const SizedBox(height: 20),
 
-          // --- STEP 3: BIO STATS & COLORS ---
-          else ...[
+            // Territory Map Color Swatch
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'TERRITORY MAP COLOR',
+                  style: TextStyle(
+                    color: Color(0xFF1E1E24),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: _parseColor(_selectedColor),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _colors.map((colorHex) {
+                  final color = _parseColor(colorHex);
+                  final isSelected = _selectedColor == colorHex;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedColor = colorHex),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected ? color : Colors.grey.shade300,
+                            width: isSelected ? 3 : 1.5,
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(3),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: color.withValues(alpha: 0.4),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    )
+                                  ]
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Gender & Date of Birth
             Row(
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     value: _selectedGender,
-                    style: const TextStyle(color: Color(0xFF1E1E24), fontSize: 14, fontWeight: FontWeight.w500),
+                    style: const TextStyle(color: Color(0xFF1E1E24), fontSize: 13, fontWeight: FontWeight.w600),
                     decoration: InputDecoration(
                       labelText: 'Gender',
-                      labelStyle: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500),
+                      labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                       floatingLabelStyle: const TextStyle(color: Color(0xFFE040FB), fontSize: 12, fontWeight: FontWeight.bold),
-                      prefixIcon: Icon(Icons.people_outline, color: Colors.grey.shade500, size: 20),
+                      prefixIcon: Icon(Icons.people_outline, color: Colors.grey.shade500, size: 18),
                       filled: true,
                       fillColor: const Color(0xFFF8F9FD),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: Colors.grey.shade200, width: 1.0),
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.grey.shade200),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: Colors.grey.shade200, width: 1.0),
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.grey.shade200),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                         borderSide: const BorderSide(color: Color(0xFFE040FB), width: 1.5),
                       ),
                     ),
@@ -1069,141 +1055,75 @@ class _LoginScreenState extends State<LoginScreen> {
                     borderRadius: BorderRadius.circular(16),
                     items: _genders.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
                     onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          _selectedGender = val;
-                        });
-                      }
+                      if (val != null) setState(() => _selectedGender = val);
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _selectDate(context),
+                    child: AbsorbPointer(
+                      child: _buildTextField(
+                        controller: _registerDobController,
+                        label: 'Birth Date (DOB)',
+                        icon: Icons.cake_outlined,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Height & Weight
+            Row(
+              children: [
                 Expanded(
                   child: _buildTextField(
                     controller: _registerWeightController,
                     label: 'Weight (kg)',
                     icon: Icons.monitor_weight_outlined,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    validator: (val) => val == null || val.isEmpty ? 'Required' : null,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildTextField(
+                    controller: _registerHeightController,
+                    label: 'Height (cm)',
+                    icon: Icons.height,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: _registerHeightController,
-              label: 'Height (cm)',
-              icon: Icons.height,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-            ),
-            const SizedBox(height: 20),
-            // Color Selector
-            Text(
-              'CHOOSE MAP COLOR',
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: _colors.map((colorHex) {
-                final color = _parseColor(colorHex);
-                final isSelected = _selectedColor == colorHex;
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedColor = colorHex;
-                    });
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isSelected ? color : Colors.transparent,
-                        width: 2.5,
-                      ),
-                    ),
-                    padding: const EdgeInsets.all(3),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: color.withOpacity(0.4),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 3),
-                                )
-                              ]
-                            : null,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 24),
+
+            // Action Buttons (Back + Complete)
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () {
-                      setState(() {
-                        _currentRegisterStep = 2;
-                      });
+                      state.clearErrorMessage();
+                      setState(() => _currentRegisterSection = 1);
                     },
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFFE040FB), width: 1.5),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       foregroundColor: const Color(0xFFE040FB),
                     ),
-                    child: const Text(
-                      'BACK',
-                      style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0),
-                    ),
+                    child: const Text('BACK', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0)),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   flex: 2,
                   child: _buildSubmitButton(
-                    label: 'CREATE',
-                    onPressed: () async {
-                      if (_registerFormKey.currentState!.validate()) {
-                        final double weight = double.tryParse(_registerWeightController.text) ?? 70.0;
-                        final double height = double.tryParse(_registerHeightController.text) ?? 170.0;
-                        final int age = int.tryParse(_registerAgeController.text) ?? 25;
-                        final success = await state.register(
-                          emailInput: _registerEmailController.text.trim(),
-                          passwordInput: _registerPasswordController.text,
-                          usernameInput: _registerUsernameController.text.trim(),
-                          firstName: _registerFirstNameController.text.trim(),
-                          lastName: _registerLastNameController.text.trim(),
-                          dob: _registerDobController.text,
-                          profilePic: _registerProfilePicController.text,
-                          colorHex: _selectedColor,
-                          weightInput: weight,
-                          heightInput: height,
-                          ageInput: age,
-                          genderInput: _selectedGender,
-                        );
-                        if (success && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Account created successfully! Welcome to TRION.')),
-                          );
-                        }
-                      }
-                    },
+                    label: 'CREATE ACCOUNT',
+                    onPressed: _handleCompleteRegistration,
                   ),
                 ),
               ],
@@ -1214,10 +1134,71 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  bool _validateSection1() {
+    return _registerFirstNameController.text.trim().isNotEmpty &&
+        _registerLastNameController.text.trim().isNotEmpty &&
+        _registerUsernameController.text.trim().length >= 3 &&
+        _registerEmailController.text.trim().contains('@') &&
+        _registerPasswordController.text.length >= 4 &&
+        _registerConfirmPasswordController.text == _registerPasswordController.text;
+  }
+
+  Future<void> _handleCompleteRegistration() async {
+    final state = Provider.of<AppState>(context, listen: false);
+    state.clearErrorMessage();
+
+    if (!_validateSection1()) {
+      setState(() => _currentRegisterSection = 1);
+      _registerFormKey.currentState?.validate();
+      return;
+    }
+
+    final isGpsOn = await Geolocator.isLocationServiceEnabled();
+    if (!isGpsOn && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('GPS is turned off. Turn on location services for real-time tracking.'),
+          action: SnackBarAction(
+            label: 'SETTINGS',
+            textColor: const Color(0xFF00E5FF),
+            onPressed: () => Geolocator.openLocationSettings(),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+
+    final double weight = double.tryParse(_registerWeightController.text) ?? 70.0;
+    final double height = double.tryParse(_registerHeightController.text) ?? 175.0;
+    final int age = int.tryParse(_registerAgeController.text) ?? 24;
+
+    final success = await state.register(
+      emailInput: _registerEmailController.text.trim(),
+      passwordInput: _registerPasswordController.text,
+      usernameInput: _registerUsernameController.text.trim(),
+      firstName: _registerFirstNameController.text.trim(),
+      lastName: _registerLastNameController.text.trim(),
+      dob: _registerDobController.text.isNotEmpty ? _registerDobController.text : '2000-01-01',
+      profilePic: _registerProfilePicController.text,
+      colorHex: _selectedColor,
+      weightInput: weight,
+      heightInput: height,
+      ageInput: age,
+      genderInput: _selectedGender,
+    );
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account created successfully! Welcome to TRION.')),
+      );
+    }
+  }
+
   /// Builds selection button widgets for preset avatar cosmetics.
-  Widget _buildAvatarOption(String name, IconData icon) {
+  Widget _buildAvatarOption(String name, IconData icon, String label) {
     final isSelected = _selectedAvatar == name;
     final themeColor = _parseColor(_selectedColor);
+
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -1227,19 +1208,33 @@ class _LoginScreenState extends State<LoginScreen> {
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? themeColor.withOpacity(0.12) : const Color(0xFFF8F9FD),
-          shape: BoxShape.circle,
+          color: isSelected ? themeColor.withValues(alpha: 0.12) : const Color(0xFFF8F9FD),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected ? themeColor : Colors.grey.shade200,
-            width: 2,
+            width: isSelected ? 2 : 1,
           ),
         ),
-        child: Icon(
-          icon,
-          size: 28,
-          color: isSelected ? themeColor : Colors.grey.shade600,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isSelected ? themeColor : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? themeColor : Colors.grey.shade700,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1259,69 +1254,85 @@ class _LoginScreenState extends State<LoginScreen> {
     return TextFormField(
       controller: controller,
       obscureText: obscure,
-      validator: validator,
       keyboardType: keyboardType,
-      style: const TextStyle(color: Color(0xFF1E1E24), fontSize: 14, fontWeight: FontWeight.w500),
+      validator: validator,
+      style: const TextStyle(
+        color: Color(0xFF1E1E24),
+        fontSize: 13.5,
+        fontWeight: FontWeight.w600,
+      ),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500),
-        floatingLabelStyle: const TextStyle(color: Color(0xFFE040FB), fontSize: 12, fontWeight: FontWeight.bold),
-        prefixIcon: Icon(icon, color: Colors.grey.shade500, size: 20),
+        labelStyle: TextStyle(
+          color: Colors.grey.shade500,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+        ),
+        floatingLabelStyle: const TextStyle(
+          color: Color(0xFFE040FB),
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+        prefixIcon: Icon(icon, color: Colors.grey.shade500, size: 18),
         suffixIcon: showPasswordToggle
             ? IconButton(
                 icon: Icon(
                   obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
                   color: Colors.grey.shade500,
-                  size: 20,
+                  size: 18,
                 ),
                 onPressed: onTogglePassword,
               )
             : null,
         filled: true,
         fillColor: const Color(0xFFF8F9FD),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: Colors.grey.shade200, width: 1.0),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: Colors.grey.shade200, width: 1.0),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFE040FB), width: 1.5),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE040FB), width: 1.8),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1.0),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5), width: 1.0),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
         ),
       ),
     );
   }
 
-  /// Builds primary neon action buttons with gradient backgrounds.
+  /// Builds a high-contrast gradient call-to-action submit button.
   Widget _buildSubmitButton({
     required String label,
     required VoidCallback onPressed,
   }) {
     return Container(
+      height: 48,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         gradient: const LinearGradient(
-          colors: [Color(0xFFE040FB), Color(0xFF8E24AA)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFE040FB), // Neon Violet
+            Color(0xFF00E5FF), // Neon Cyan
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFE040FB).withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
+            color: const Color(0xFFE040FB).withValues(alpha: 0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1329,17 +1340,18 @@ class _LoginScreenState extends State<LoginScreen> {
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
-          foregroundColor: Colors.white,
           shadowColor: Colors.transparent,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
         child: Text(
           label,
           style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-            letterSpacing: 1.5,
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            fontSize: 13,
           ),
         ),
       ),

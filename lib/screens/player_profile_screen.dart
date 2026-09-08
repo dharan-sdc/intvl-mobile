@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
+import '../widgets/celebration_dialog.dart';
 import 'edit_profile_screen.dart';
+import 'user_guide_screen.dart';
 
 /// Screen displaying the active player's level, progression XP meters, claimed area land metrics, and tab navigation.
 ///
@@ -16,11 +18,24 @@ class PlayerProfileScreen extends StatefulWidget {
 
 class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  String _selectedAchievementCategory = 'ALL';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging && mounted) {
+        final state = Provider.of<AppState>(context, listen: false);
+        if (_tabController.index == 1) {
+          state.fetchAchievements();
+        } else if (_tabController.index == 2) {
+          state.fetchRewards();
+        } else if (_tabController.index == 3) {
+          state.fetchContributionHistory();
+        }
+      }
+    });
   }
 
   @override
@@ -68,6 +83,16 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.menu_book, color: Color(0xFFE040FB)),
+            tooltip: 'Tactical Field Manual',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const UserGuideScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.black87),
             onPressed: () {
@@ -338,8 +363,49 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     final allMissions = [...state.dailyMissions, ...state.weeklyMissions];
 
     if (allMissions.isEmpty) {
-      return const Center(
-        child: Text('No active missions available.', style: TextStyle(color: Colors.white54)),
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.military_tech_outlined, color: Color(0xFF00E5FF), size: 48),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Missions Ready to Deploy',
+                style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'New daily and weekly tactical objectives will automatically refresh. Start tracking your activities on the map to complete goals!',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: Colors.black87,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  elevation: 1,
+                ),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('REFRESH MISSIONS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.8)),
+                onPressed: () {
+                  state.fetchMissions(force: true);
+                },
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -365,83 +431,87 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
               width: 1,
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      m.title,
-                      style: TextStyle(
-                        color: completed ? Colors.green.shade700 : Colors.black87,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isDaily ? Colors.blue.withOpacity(0.15) : Colors.purple.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        isDaily ? 'DAILY' : 'WEEKLY',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => CelebrationDialog.showMission(context, mission: m),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        m.title,
                         style: TextStyle(
-                          color: isDaily ? Colors.blueAccent : Colors.purpleAccent,
+                          color: completed ? Colors.green.shade700 : Colors.black87,
                           fontWeight: FontWeight.bold,
-                          fontSize: 9,
+                          fontSize: 14,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  m.description,
-                  style: const TextStyle(color: Colors.black54, fontSize: 11),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      displayProgress,
-                      style: const TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                    if (completed)
-                      Row(
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.green.shade700, size: 14),
-                          const SizedBox(width: 4),
-                          Text('COMPLETED', style: TextStyle(color: Colors.green.shade700, fontSize: 10, fontWeight: FontWeight.bold)),
-                        ],
-                      )
-                  ],
-                ),
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progressRatio,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor: AlwaysStoppedAnimation<Color>(completed ? Colors.green.shade600 : Colors.grey.shade400),
-                    minHeight: 5,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isDaily ? Colors.blue.withOpacity(0.15) : Colors.purple.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          isDaily ? 'DAILY' : 'WEEKLY',
+                          style: TextStyle(
+                            color: isDaily ? Colors.blueAccent : Colors.purpleAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _buildRewardBadge('+${m.xpReward} XP', Colors.lightBlueAccent),
-                    const SizedBox(width: 8),
-                    _buildRewardBadge('+${m.coinReward} Coins', Colors.amber),
-                    const SizedBox(width: 8),
-                    _buildRewardBadge('+${m.contributionReward} CS', Colors.tealAccent),
-                  ],
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    m.description,
+                    style: const TextStyle(color: Colors.black54, fontSize: 11),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        displayProgress,
+                        style: const TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                      if (completed)
+                        Row(
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.green.shade700, size: 14),
+                            const SizedBox(width: 4),
+                            Text('COMPLETED', style: TextStyle(color: Colors.green.shade700, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ],
+                        )
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progressRatio,
+                      backgroundColor: Colors.grey.shade200,
+                      valueColor: AlwaysStoppedAnimation<Color>(completed ? Colors.green.shade600 : Colors.grey.shade400),
+                      minHeight: 5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _buildRewardBadge('+${m.xpReward} XP', Colors.lightBlueAccent),
+                      const SizedBox(width: 8),
+                      _buildRewardBadge('+${m.coinReward} Coins', Colors.amber),
+                      const SizedBox(width: 8),
+                      _buildRewardBadge('+${m.contributionReward} CS', Colors.tealAccent),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -465,11 +535,52 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     );
   }
 
-  /// Builds the grid displaying badge achievements and trophies.
+  /// Builds the 2-column grid displaying star trophy badge achievements.
   Widget _buildAchievementsTab(AppState state) {
     if (state.achievements.isEmpty) {
-      return const Center(
-        child: Text('No badges recorded.', style: TextStyle(color: Colors.white54)),
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFD600).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.emoji_events_outlined, color: Color(0xFFFFD600), size: 48),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Unlock Star Trophies',
+                style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Complete distance milestones, claim territory hexagons, and participate in campaigns to unlock Bronze, Silver, and Gold badges!',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFD600),
+                  foregroundColor: Colors.black87,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  elevation: 1,
+                ),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('CHECK MILESTONES', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.8)),
+                onPressed: () {
+                  state.fetchAchievements(force: true);
+                },
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -492,57 +603,84 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
               color: a.isUnlocked ? Colors.amber : Colors.grey.shade200,
-              width: 1,
+              width: a.isUnlocked ? 1.5 : 1.0,
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  a.isUnlocked ? Icons.stars : Icons.stars_outlined,
-                  color: a.isUnlocked ? Colors.amber : Colors.grey.shade300,
-                  size: 40,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  a.title,
-                  style: TextStyle(
-                    color: a.isUnlocked ? Colors.amber.shade800 : Colors.black87,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
+          child: InkWell(
+            onTap: () => CelebrationDialog.showAchievement(context, achievement: a),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    a.isUnlocked ? Icons.stars : Icons.stars_outlined,
+                    color: a.isUnlocked ? Colors.amber : Colors.grey.shade300,
+                    size: 40,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  a.description,
-                  style: const TextStyle(color: Colors.black54, fontSize: 9),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const Spacer(),
-                Text(
-                  '${a.progress.toStringAsFixed(0)} / ${a.targetValue.toStringAsFixed(0)}',
-                  style: TextStyle(
-                    color: a.isUnlocked ? Colors.amber.shade900 : Colors.black87,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
+                  const SizedBox(height: 8),
+                  Text(
+                    a.title,
+                    style: TextStyle(
+                      color: a.isUnlocked ? Colors.amber.shade800 : Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(height: 4),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progressRatio,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor: AlwaysStoppedAnimation<Color>(a.isUnlocked ? Colors.amber : Colors.grey.shade300),
-                    minHeight: 4,
+                  const SizedBox(height: 2),
+                  Text(
+                    a.description,
+                    style: const TextStyle(color: Colors.black54, fontSize: 9),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  if (a.isUnlocked)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.check_circle, color: Colors.green, size: 12),
+                        SizedBox(width: 4),
+                        Text(
+                          'UNLOCKED',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    )
+                  else ...[
+                    Text(
+                      '${a.progress.toStringAsFixed(0)} / ${a.targetValue.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progressRatio,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          a.isUnlocked ? Colors.amber : const Color(0xFFE040FB),
+                        ),
+                        minHeight: 4,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         );
@@ -803,17 +941,34 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
                           icon: const Icon(Icons.check_circle, color: Colors.green),
                           onPressed: () async {
                             final ok = await state.acceptFriendRequest(req.id);
-                            if (ok && mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Accepted friend request from ${req.senderUsername}! 🎉')),
-                              );
+                            if (mounted) {
+                              if (ok) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Accepted friend request from ${req.senderUsername}! 🎉'), backgroundColor: Colors.green),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(state.errorMessage ?? 'Failed to accept friend request.'), backgroundColor: Colors.redAccent),
+                                );
+                              }
                             }
                           },
                         ),
                         IconButton(
                           icon: const Icon(Icons.cancel, color: Colors.redAccent),
                           onPressed: () async {
-                            await state.rejectFriendRequest(req.id);
+                            final ok = await state.rejectFriendRequest(req.id);
+                            if (mounted) {
+                              if (ok) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Friend request declined.')),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(state.errorMessage ?? 'Failed to decline friend request.'), backgroundColor: Colors.redAccent),
+                                );
+                              }
+                            }
                           },
                         ),
                       ],
@@ -879,17 +1034,36 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             TextButton(
-                              onPressed: () => state.rejectRouteInvitation(challenge.id),
+                              onPressed: () async {
+                                final ok = await state.rejectRouteInvitation(challenge.id);
+                                if (mounted) {
+                                  if (ok) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Challenge declined.')),
+                                    );
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(state.errorMessage ?? 'Failed to decline challenge.'), backgroundColor: Colors.redAccent),
+                                    );
+                                  }
+                                }
+                              },
                               child: const Text('DECLINE', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
                               onPressed: () async {
                                 final success = await state.acceptRouteInvitation(challenge.id);
-                                if (success && mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Challenge accepted! Go to active challenges to run it.')),
-                                  );
+                                if (mounted) {
+                                  if (success) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Challenge accepted! Go to active challenges to run it.'), backgroundColor: Colors.green),
+                                    );
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(state.errorMessage ?? 'Failed to accept challenge.'), backgroundColor: Colors.redAccent),
+                                    );
+                                  }
                                 }
                               },
                               style: ElevatedButton.styleFrom(

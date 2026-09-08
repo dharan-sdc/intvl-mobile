@@ -509,11 +509,44 @@ class _ClubScreenState extends State<ClubScreen> {
                               icon: const Icon(Icons.more_vert),
                               onSelected: (val) async {
                                 if (val == 'KICK') {
-                                  await state.kickMember(member.userId);
+                                  final ok = await state.kickMember(member.userId);
+                                  if (context.mounted) {
+                                    if (ok) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Removed ${member.username} from the club.')),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(state.errorMessage ?? 'Failed to kick member.'), backgroundColor: Colors.redAccent),
+                                      );
+                                    }
+                                  }
                                 } else if (val == 'PROMOTE') {
-                                  await state.updateMemberRole(member.userId, 'OFFICER');
+                                  final ok = await state.updateMemberRole(member.userId, 'OFFICER');
+                                  if (context.mounted) {
+                                    if (ok) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Promoted ${member.username} to Officer!')),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(state.errorMessage ?? 'Failed to promote member.'), backgroundColor: Colors.redAccent),
+                                      );
+                                    }
+                                  }
                                 } else if (val == 'DEMOTE') {
-                                  await state.updateMemberRole(member.userId, 'MEMBER');
+                                  final ok = await state.updateMemberRole(member.userId, 'MEMBER');
+                                  if (context.mounted) {
+                                    if (ok) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Demoted ${member.username} to Member.')),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(state.errorMessage ?? 'Failed to demote member.'), backgroundColor: Colors.redAccent),
+                                      );
+                                    }
+                                  }
                                 } else if (val == 'LEADER') {
                                   // Transfer leadership dialog check
                                   _showTransferLeadershipDialog(context, state, member);
@@ -535,7 +568,18 @@ class _ClubScreenState extends State<ClubScreen> {
                           ? IconButton(
                               icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
                               onPressed: () async {
-                                await state.kickMember(member.userId);
+                                final ok = await state.kickMember(member.userId);
+                                if (context.mounted) {
+                                  if (ok) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Removed ${member.username} from the club.')),
+                                    );
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(state.errorMessage ?? 'Failed to kick member.'), backgroundColor: Colors.redAccent),
+                                    );
+                                  }
+                                }
                               },
                             )
                           : null,
@@ -611,10 +655,16 @@ class _ClubScreenState extends State<ClubScreen> {
             onPressed: () async {
               Navigator.pop(ctx);
               final success = await state.updateMemberRole(member.userId, 'LEADER');
-              if (success && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Transferred ownership to ${member.username}!')),
-                );
+              if (context.mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Transferred ownership to ${member.username}!'), backgroundColor: Colors.green),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(state.errorMessage ?? 'Failed to transfer leadership.'), backgroundColor: Colors.redAccent),
+                  );
+                }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -659,10 +709,16 @@ class _ClubScreenState extends State<ClubScreen> {
             onPressed: () async {
               Navigator.pop(ctx);
               final success = await state.leaveClub();
-              if (success && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Left the club successfully.')),
-                );
+              if (context.mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Left the club successfully.'), backgroundColor: Colors.green),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(state.errorMessage ?? 'Failed to leave club.'), backgroundColor: Colors.redAccent),
+                  );
+                }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),

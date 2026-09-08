@@ -3,10 +3,13 @@ import 'package:provider/provider.dart';
 import 'app_state.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_screen.dart';
+import 'screens/campaigns_screen.dart';
 import 'screens/leaderboard_screen.dart';
 import 'screens/activity_feed_screen.dart';
 import 'screens/player_profile_screen.dart';
 import 'screens/club_screen.dart';
+import 'screens/user_guide_screen.dart';
+import 'widgets/welcome_tour_dialog.dart';
 
 /// Entry point of the mobile application.
 /// Sets up the [AppState] ChangeNotifierProvider at the top level.
@@ -74,10 +77,21 @@ class MainTabNavigation extends StatefulWidget {
 class _MainTabNavigationState extends State<MainTabNavigation> {
   final List<Widget> _screens = const [
     MapScreen(),
+    CampaignsScreen(),
     LeaderboardScreen(),
     ActivityFeedScreen(),
     PlayerProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        WelcomeTourDialog.showIfFirstTime(context);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,29 +104,27 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: state.currentTab,
+        type: BottomNavigationBarType.fixed,
         backgroundColor: Colors.white,
         selectedItemColor: const Color(0xFFE040FB),
         unselectedItemColor: Colors.grey.shade600,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.5),
-        unselectedLabelStyle: const TextStyle(fontSize: 10),
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 0.5),
+        unselectedLabelStyle: const TextStyle(fontSize: 9),
         onTap: (index) {
           state.setTab(index);
           
           // Pull updates depending on selected tab
           if (index == 1) {
-            state.fetchLeaderboard();
+            state.fetchCampaigns();
+            state.fetchMyCampaigns();
           } else if (index == 2) {
+            state.fetchLeaderboard();
+          } else if (index == 3) {
             state.fetchEvents();
             state.fetchActivities();
-          } else if (index == 3) {
+          } else if (index == 4) {
             state.fetchProgression();
             state.fetchMissions();
-            state.fetchAchievements();
-            state.fetchRewards();
-            state.fetchContributionHistory();
-            state.fetchFriends();
-            state.fetchPendingFriendRequests();
-            state.fetchRouteInvitations();
           }
         },
         items: const [
@@ -122,9 +134,14 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
             label: 'MAP',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.track_changes_outlined),
+            activeIcon: Icon(Icons.track_changes, color: Color(0xFFE040FB)),
+            label: 'CAMPAIGNS',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.emoji_events_outlined),
             activeIcon: Icon(Icons.emoji_events, color: Color(0xFFE040FB)),
-            label: 'LEADERBOARD',
+            label: 'LEADERS',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.feed_outlined),
@@ -181,7 +198,15 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.track_changes, color: Color(0xFFE040FB)),
+                title: const Text('Campaigns & Challenges', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                subtitle: const Text('Awareness runs, marathons & charity', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                onTap: () {
+                  Navigator.pop(context); // Close drawer
+                  state.setTab(1); // Switch to Campaigns tab
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.groups, color: Color(0xFFE040FB)),
                 title: const Text('Clubs', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
@@ -191,6 +216,18 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const ClubScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.menu_book, color: Color(0xFFE040FB)),
+                title: const Text('Field Manual & Guide', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                subtitle: const Text('Game rules, H3 grid, and sieges', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const UserGuideScreen()),
                   );
                 },
               ),

@@ -151,10 +151,48 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> with SingleTick
             child: _loadingMyActivities
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFFE040FB)))
                 : state.activities.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'You haven\'t recorded any activities yet.',
-                          style: TextStyle(color: Colors.grey),
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE040FB).withValues(alpha: 0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.directions_run, color: Color(0xFFE040FB), size: 48),
+                              ),
+                              const SizedBox(height: 20),
+                              const Text(
+                                'Record Your First Activity',
+                                style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Track your walk, run, or cycle on the live GPS map to burn calories, earn XP, and conquer territory for your club!',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.4),
+                              ),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE040FB),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                  elevation: 1,
+                                ),
+                                icon: const Icon(Icons.map, size: 18),
+                                label: const Text('START ON MAP', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.8)),
+                                onPressed: () {
+                                  state.setTab(0); // Switch to Map Tab
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                       )
                     : Column(

@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import '../app_state.dart';
+import '../widgets/celebration_dialog.dart';
+import '../widgets/contextual_tip_banner.dart';
+import 'user_guide_screen.dart';
 
 /// Interactive map screen showing GPS paths, territories claimed, and real-time navigation controls.
 ///
@@ -27,12 +31,18 @@ class _MapScreenState extends State<MapScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final state = Provider.of<AppState>(context, listen: false);
       state.addListener(_onStateChanged);
-      await state.determineAndSetCurrentLocation();
+      // Auto-determine location on startup
+      await state.determineAndSetCurrentLocation(userInitiated: true);
       if (state.userId != null) {
         state.fetchActivities();
+        state.syncPendingOfflineActivities();
       }
       if (mounted) {
-        _mapController.move(state.centerLocation, 14.5);
+        final target = state.userLiveLocation ?? state.centerLocation;
+        _lastCenteredLocation = target;
+        try {
+          _mapController.move(target, 15.0);
+        } catch (_) {}
       }
     });
   }
@@ -46,28 +56,193 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Triggers map panning updates when the device resolves a new GPS position coordinates node.
   ///
-  /// [Why] Automatically keeps the map centered on the player during active tracking.
+  /// [Why] Automatically keeps the map centered on the player when camera follow mode is active.
   void _onStateChanged() {
     if (!mounted) return;
     final state = Provider.of<AppState>(context, listen: false);
     
-    // Auto-center during active real GPS tracking
-    if (state.isRecording && !state.isSimulationMode) {
-      if (_lastCenteredLocation != state.centerLocation) {
-        _lastCenteredLocation = state.centerLocation;
-        _mapController.move(state.centerLocation, _mapController.camera.zoom);
+    // Auto-center camera only if camera follow mode is active
+    if (state.isCameraFollowingUser && state.userLiveLocation != null) {
+      if (_lastCenteredLocation != state.userLiveLocation) {
+        _lastCenteredLocation = state.userLiveLocation;
+        try {
+          final zoom = _mapController.camera.zoom > 0 ? _mapController.camera.zoom : 15.5;
+          _mapController.move(state.userLiveLocation!, zoom);
+        } catch (_) {}
       }
-    } else {
-      // Auto-center once if map is centered on default New York, but state location is resolved elsewhere
-      final currentMapCenter = _mapController.camera.center;
-      final isNewYork = (currentMapCenter.latitude - 40.785091).abs() < 0.0001 &&
-                        (currentMapCenter.longitude - (-73.968285)).abs() < 0.0001;
-      final isStateNewYork = (state.centerLocation.latitude - 40.785091).abs() < 0.0001 &&
-                             (state.centerLocation.longitude - (-73.968285)).abs() < 0.0001;
-      if (isNewYork && !isStateNewYork) {
+    } else if (_lastCenteredLocation == null) {
+      _lastCenteredLocation = state.centerLocation;
+      try {
         _mapController.move(state.centerLocation, 14.5);
+      } catch (_) {}
+    }
+  }
+
+  /// Shows the friendly in-app dialog when device location / GPS services are turned off.
+  void _showEnableGpsDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.location_off, color: Color(0xFFE040FB)),
+            SizedBox(width: 10),
+            Text(
+              'Turn On Location',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Location services (GPS) are currently turned off on your device. Please turn on location to view your live position, track runs, and conquer territories.',
+          style: TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Not Now', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await Geolocator.openLocationSettings();
+            },
+            icon: const Icon(Icons.settings, size: 16),
+            label: const Text('Turn On Location'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE040FB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shows settings redirection dialog when location permission has been permanently denied.
+  void _showPermissionSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.security, color: Color(0xFFE040FB)),
+            SizedBox(width: 10),
+            Text(
+              'Location Access',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Location access is required to track your GPS workouts. Please enable location permission in your device app settings.',
+          style: TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await Geolocator.openAppSettings();
+            },
+            icon: const Icon(Icons.settings, size: 16),
+            label: const Text('Open Settings'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE040FB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Validates GPS service and location permissions before starting a recording session.
+  Future<void> _handleStartRecording(AppState state) async {
+    if (!state.isSimulationMode) {
+      final isGpsOn = await Geolocator.isLocationServiceEnabled();
+      if (!isGpsOn) {
+        _showEnableGpsDialog();
+        return;
+      }
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+        state.hasRequestedLocationPermission = true;
+      }
+      if (perm == LocationPermission.deniedForever) {
+        _showPermissionSettingsDialog();
+        return;
+      }
+      if (perm == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Location permission is required for real GPS tracking.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
       }
     }
+    state.startRecording();
+  }
+
+  /// Displays dialog allowing the user to set the current map view center as their persistent Home Base.
+  void _showSetHomeLocationDialog(AppState state) {
+    final currentCenter = _mapController.camera.center;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.home, color: Color(0xFFE040FB)),
+            SizedBox(width: 10),
+            Text('Set Home Base', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: Text(
+          'Set current map position (${currentCenter.latitude.toStringAsFixed(4)}, ${currentCenter.longitude.toStringAsFixed(4)}) as your permanent Home Base?\n\nThe map will automatically open here every time.',
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await state.setHomeLocation(currentCenter);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🏠 Home Base saved successfully!'),
+                    backgroundColor: Color(0xFFE040FB),
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.check, size: 16),
+            label: const Text('Save Home Base'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE040FB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Parses hex color strings into Color classes.
@@ -219,6 +394,19 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
+    // Live Loop Completion Preview Polygon
+    if (state.isRecording && state.isLoopCompleted && state.pathPoints.length >= 3) {
+      mapPolygons.add(
+        Polygon(
+          points: state.pathPoints,
+          color: const Color(0xFF00E676).withOpacity(0.22),
+          borderColor: const Color(0xFF00E676),
+          borderStrokeWidth: 2.0,
+          isFilled: true,
+        ),
+      );
+    }
+
     final List<Polyline> completedPolylines = [];
     for (var act in state.activities) {
       final pointsData = act['points'] as List<dynamic>?;
@@ -288,9 +476,10 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     // Add Live Current Location Marker (Blue Dot)
+    final liveMarkerPoint = state.userLiveLocation ?? state.centerLocation;
     mapMarkers.add(
       Marker(
-        point: state.centerLocation,
+        point: liveMarkerPoint,
         width: 26,
         height: 26,
         child: Container(
@@ -319,6 +508,32 @@ class _MapScreenState extends State<MapScreen> {
         ),
       ),
     );
+
+    // Add Home Base Marker if registered
+    if (state.homeLocation != null) {
+      mapMarkers.add(
+        Marker(
+          point: state.homeLocation!,
+          width: 32,
+          height: 32,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFE040FB),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFE040FB).withOpacity(0.4),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(Icons.home, color: Colors.white, size: 18),
+          ),
+        ),
+      );
+    }
 
     if (state.pathPoints.isNotEmpty) {
       mapMarkers.add(
@@ -442,6 +657,7 @@ class _MapScreenState extends State<MapScreen> {
               initialZoom: 14.5,
               onPositionChanged: (camera, hasGesture) {
                 if (hasGesture) {
+                  state.setCameraFollowMode(false);
                   state.saveLastCenteredLocation(camera.center);
                 }
               },
@@ -574,7 +790,7 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 14),
                       Column(
                         children: [
                           const Row(
@@ -590,12 +806,74 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.help_outline, color: Color(0xFFE040FB), size: 20),
+                        tooltip: 'Tactical Field Manual',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const UserGuideScreen()),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ],
               ),
             ),
           ),
+
+          // 2.3 GPS Acquisition / Disabled Indicator Banner
+          if (!state.isRecording && state.activeInvitationId == null && (!state.isGpsEnabled || (state.isLocating && state.userLiveLocation == null)))
+            Positioned(
+              top: 120,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: (!state.isGpsEnabled ? Colors.red.shade900 : Colors.indigo.shade900).withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 6),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    if (!state.isGpsEnabled)
+                      const Icon(Icons.location_off, color: Colors.white, size: 16)
+                    else
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                      ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        !state.isGpsEnabled
+                            ? 'GPS is turned off on device. Tap to enable.'
+                            : 'Acquiring high-accuracy GPS position...',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    if (!state.isGpsEnabled)
+                      TextButton(
+                        onPressed: () => Geolocator.openLocationSettings(),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('ENABLE', style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold, fontSize: 11)),
+                      ),
+                  ],
+                ),
+              ),
+            ),
 
           // 2.5 Active Challenge Selected Banner
           if (state.activeInvitationId != null && !state.isRecording)
@@ -640,6 +918,88 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ],
                 ),
+              ),
+            ),
+
+          // 2.7 Pending Offline Sync Banner
+          if (state.pendingOfflineActivities.isNotEmpty && !state.isRecording)
+            Positioned(
+              top: state.activeInvitationId != null ? 180 : 120,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber.shade700, width: 1.2),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_off, color: Colors.amber.shade800, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'OFFLINE WORKOUTS SAVED',
+                            style: TextStyle(color: Colors.brown, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 1.1),
+                          ),
+                          Text(
+                            '${state.pendingOfflineActivities.length} workout(s) stored locally on device',
+                            style: TextStyle(color: Colors.amber.shade900, fontSize: 11, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: state.isSyncingOfflineActivities
+                          ? null
+                          : () async {
+                              final messenger = ScaffoldMessenger.of(context);
+                              final result = await state.syncPendingOfflineActivities();
+                              if (result['synced'] > 0) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text('Successfully synced ${result['synced']} offline workout(s)!'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: const Size(60, 32),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text(
+                        state.isSyncingOfflineActivities ? 'SYNCING...' : 'SYNC NOW',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // 2.9 Contextual Discovery Tip (Dismissable)
+          if (!state.isRecording && state.activeInvitationId == null && state.pendingOfflineActivities.isEmpty)
+            const Positioned(
+              top: 110,
+              left: 0,
+              right: 0,
+              child: ContextualTipBanner(
+                tipId: 'map_loop_conquest',
+                title: 'TERRITORY CONQUEST',
+                message: 'Walk, run, or cycle in a closed loop around any area to capture that H3 hexagon for your profile!',
+                icon: Icons.radar,
+                accentColor: Color(0xFFE040FB),
               ),
             ),
 
@@ -704,28 +1064,91 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // 5. My Location Button
+          // 5. Floating Controls (Home Base + My Location)
           Positioned(
             right: 16,
             bottom: state.isRecording 
                 ? 180 
                 : (state.targetTerritoryId != null ? 360 : 200),
-            child: FloatingActionButton(
-              mini: true,
-              backgroundColor: Colors.white.withOpacity(0.92),
-              foregroundColor: const Color(0xFFE040FB),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: const Color(0xFFE040FB).withOpacity(0.4), width: 1.5),
-              ),
-              onPressed: () async {
-                _mapController.move(state.centerLocation, 14.5);
-                await state.determineAndSetCurrentLocation(forceOpenSettings: true);
-                if (mounted) {
-                  _mapController.move(state.centerLocation, 14.5);
-                }
-              },
-              child: const Icon(Icons.my_location),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Home Base Quick Jump & Long-Press Setter
+                FloatingActionButton(
+                  mini: true,
+                  heroTag: 'home_base_fab',
+                  backgroundColor: Colors.white.withOpacity(0.95),
+                  foregroundColor: const Color(0xFFE040FB),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: const Color(0xFFE040FB).withOpacity(0.5), width: 1.5),
+                  ),
+                  tooltip: state.homeLocation != null ? 'Go to Home Base (Long-press to update)' : 'Set Current Map as Home Base',
+                  onPressed: () {
+                    if (state.homeLocation != null) {
+                      _mapController.move(state.homeLocation!, 15.0);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('🏠 Centered on Home Base'),
+                          duration: Duration(milliseconds: 1500),
+                        ),
+                      );
+                    } else {
+                      _showSetHomeLocationDialog(state);
+                    }
+                  },
+                  child: const Icon(Icons.home),
+                ),
+                const SizedBox(height: 8),
+
+                // My Location FAB with Smart GPS / Permission Handling & Recenter
+                FloatingActionButton(
+                  mini: true,
+                  heroTag: 'my_location_fab',
+                  backgroundColor: Colors.white.withOpacity(0.95),
+                  foregroundColor: state.isCameraFollowingUser ? const Color(0xFF00E5FF) : const Color(0xFFE040FB),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: state.isCameraFollowingUser ? const Color(0xFF00E5FF) : const Color(0xFFE040FB).withOpacity(0.5),
+                      width: 1.5,
+                    ),
+                  ),
+                  tooltip: 'Recenter on My Location',
+                  onPressed: () async {
+                    final isGpsOn = await Geolocator.isLocationServiceEnabled();
+                    if (!isGpsOn) {
+                      _showEnableGpsDialog();
+                      return;
+                    }
+                    state.setCameraFollowMode(true);
+                    final success = await state.determineAndSetCurrentLocation(userInitiated: true);
+                    if (mounted) {
+                      final targetLoc = state.userLiveLocation ?? state.centerLocation;
+                      _lastCenteredLocation = targetLoc;
+                      try {
+                        _mapController.move(targetLoc, 15.5);
+                      } catch (_) {}
+                      if (state.userLiveLocation != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('📍 Centered on your live GPS location'),
+                            duration: Duration(milliseconds: 1500),
+                          ),
+                        );
+                      } else if (!success) {
+                        LocationPermission perm = await Geolocator.checkPermission();
+                        if (perm == LocationPermission.deniedForever) {
+                          _showPermissionSettingsDialog();
+                        }
+                      }
+                    }
+                  },
+                  child: Icon(
+                    state.isCameraFollowingUser ? Icons.my_location : Icons.location_searching,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -769,41 +1192,22 @@ class _MapScreenState extends State<MapScreen> {
                 );
               }).toList(),
             ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.gps_fixed, color: Color(0xFFE040FB), size: 16),
-                const SizedBox(width: 8),
-                const Text(
-                  'REAL GPS TRACKING',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
-                ),
-                const SizedBox(width: 8),
-                Switch(
-                  value: !state.isSimulationMode,
-                  activeColor: const Color(0xFFE040FB),
-                  onChanged: (val) {
-                    state.toggleSimulationMode(!val);
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
-              height: 46,
+              height: 48,
               child: ElevatedButton.icon(
-                onPressed: () => state.startRecording(),
-                icon: const Icon(Icons.play_arrow, color: Colors.white),
+                onPressed: () => _handleStartRecording(state),
+                icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
                 label: const Text(
-                  'START GENERAL FITNESS ROUTE',
-                  style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                  'START WORKOUT ROUTE',
+                  style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE040FB),
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  elevation: 2,
                 ),
               ),
             ),
@@ -829,6 +1233,73 @@ class _MapScreenState extends State<MapScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            if (state.isLoopCompleted)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E676).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF00E676), width: 1.5),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.check_circle, color: Color(0xFF00C853), size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'LOOP COMPLETED - Ready to Capture! 🏰',
+                      style: TextStyle(
+                        color: Color(0xFF007E33),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (state.pathPoints.length >= 2)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.near_me, color: Colors.blueAccent, size: 14),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Distance to start: ${state.distanceToStart.toStringAsFixed(0)} m (Return to start to close loop)',
+                      style: TextStyle(color: Colors.grey.shade700, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            // Multi-Campaign Contributing Indicator
+            if (state.myCampaigns.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE040FB).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE040FB).withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.track_changes, color: Color(0xFFE040FB), size: 14),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Contributing to ${state.myCampaigns.length} ${state.myCampaigns.length == 1 ? 'Campaign' : 'Campaigns'} (${state.myCampaigns.take(3).map((c) => c.iconEmoji).join(' ')})',
+                      style: const TextStyle(color: Color(0xFFE040FB), fontWeight: FontWeight.bold, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
@@ -863,9 +1334,17 @@ class _MapScreenState extends State<MapScreen> {
                   flex: 2,
                   child: ElevatedButton(
                     onPressed: state.isLoading ? null : () async {
+                      final savedDistance = state.distanceMeters;
+                      final savedDuration = state.durationSeconds;
                       final res = await state.completeAndSubmitActivity();
                       if (res != null && mounted) {
-                        if (res['status'] == 'REJECTED') {
+                        if (res['status'] == 'SAVED_OFFLINE') {
+                          _showStatusDialog(
+                            title: 'Saved Offline 📡',
+                            message: res['message'] ?? 'Network is disconnected. Your walk and loop have been safely stored on your device and will automatically sync when you reconnect!',
+                            isSuccess: true,
+                          );
+                        } else if (res['status'] == 'REJECTED') {
                           _showStatusDialog(
                             title: 'Activity Rejected ❌',
                             message: 'Anti-cheat validation failed due to velocity anomalies or spoofing pattern matching. Progress voided.',
@@ -877,24 +1356,37 @@ class _MapScreenState extends State<MapScreen> {
                             message: res['error'] ?? 'An error occurred while saving your activity. Please try again.',
                             isSuccess: false,
                           );
-                        } else if (res['isClosedLoop'] == true && res['territoryArea'] != null) {
-                          final area = (res['territoryArea'] as num).toStringAsFixed(0);
-                          _showStatusDialog(
-                            title: 'Loop Complete! 🏰',
-                            message: 'You successfully enclosed unclaimed cells and claimed a new territory of $area m²!',
-                            isSuccess: true,
+                        } else if (res['isClosedLoop'] == true && res['territoryArea'] != null && (res['territoryArea'] as num) > 0) {
+                          final area = (res['territoryArea'] as num).toDouble();
+                          await CelebrationDialog.show(
+                            context,
+                            title: 'VICTORY! TERRITORY CLAIMED! 🏰',
+                            message: 'You successfully enclosed unclaimed territory and claimed ${area.toStringAsFixed(0)} m² for your profile!',
+                            distanceMeters: savedDistance,
+                            durationSeconds: savedDuration,
+                            territoryArea: area,
+                            xpGained: 250,
+                            achievementUnlocked: 'Territory Conqueror',
                           );
                         } else if (res['isClosedLoop'] == true) {
-                          _showStatusDialog(
-                            title: 'Loop Complete! 🏁',
-                            message: 'Your route was recorded as a closed loop, but no new unclaimed cells were enclosed within it.',
-                            isSuccess: true,
+                          await CelebrationDialog.show(
+                            context,
+                            title: 'LOOP COMPLETED! 🏆',
+                            message: 'Great run! You completed a full closed loop route.',
+                            distanceMeters: savedDistance,
+                            durationSeconds: savedDuration,
+                            xpGained: 150,
+                            achievementUnlocked: savedDistance >= 5000 ? '5K Milestone' : null,
                           );
                         } else {
-                          _showStatusDialog(
-                            title: 'Activity Saved 🏁',
-                            message: 'Your route was recorded. To claim territory directly, ensure your activity forms a closed loop.',
-                            isSuccess: true,
+                          await CelebrationDialog.show(
+                            context,
+                            title: 'WORKOUT COMPLETED! 🏁',
+                            message: 'Fantastic effort! Your workout telemetry has been logged.',
+                            distanceMeters: savedDistance,
+                            durationSeconds: savedDuration,
+                            xpGained: 100,
+                            achievementUnlocked: savedDistance >= 1000 ? 'First Stride' : null,
                           );
                         }
                       }
@@ -1086,7 +1578,7 @@ class _MapScreenState extends State<MapScreen> {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () {
-                      state.startRecording();
+                      _handleStartRecording(state);
                     },
                     icon: Icon(
                       isOwner ? Icons.shield : (territory.status == 'CAPTURE_WINDOW' ? Icons.flag : Icons.colorize),
@@ -1172,25 +1664,120 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  /// Displays basic alerts after completing workouts.
+  /// Displays basic alerts and multi-campaign impact summaries after completing workouts.
   void _showStatusDialog({required String title, required String message, required bool isSuccess}) {
+    final state = Provider.of<AppState>(context, listen: false);
+    final impacts = state.lastWorkoutCampaignImpacts;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(title, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-        content: Text(message, style: const TextStyle(color: Colors.black54)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: isSuccess ? const Color(0xFF00E676).withOpacity(0.5) : Colors.redAccent.withOpacity(0.5), width: 1.5),
+        ),
+        title: Text(title, style: const TextStyle(color: Color(0xFF1A202C), fontWeight: FontWeight.bold, fontSize: 18)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(message, style: const TextStyle(color: Color(0xFF4A5568), fontSize: 13, height: 1.4)),
+              
+              if (impacts.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Divider(color: Colors.grey.shade200),
+                const SizedBox(height: 8),
+                const Row(
+                  children: [
+                    Icon(Icons.track_changes, color: Color(0xFFE040FB), size: 16),
+                    SizedBox(width: 6),
+                    Text(
+                      'CAMPAIGN IMPACT',
+                      style: TextStyle(color: Color(0xFF1A202C), fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 0.5),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ...impacts.map((imp) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8F9FA),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(imp.iconEmoji, style: const TextStyle(fontSize: 16)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                imp.campaignTitle,
+                                style: const TextStyle(color: Color(0xFF1A202C), fontWeight: FontWeight.bold, fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              '+${imp.pointsEarned} PTS',
+                              style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.w900, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '+${imp.distanceContributedKm.toStringAsFixed(2)} KM Contributed',
+                              style: const TextStyle(color: Color(0xFF0097A7), fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              '${imp.goalPercentage.toStringAsFixed(0)}% Goal',
+                              style: const TextStyle(color: Colors.black54, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: LinearProgressIndicator(
+                            value: imp.goalPercentage / 100.0,
+                            minHeight: 5,
+                            backgroundColor: Colors.grey.shade200,
+                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE040FB)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(
-              'OK',
-              style: TextStyle(
-                color: isSuccess ? Colors.greenAccent : Colors.redAccent,
-                fontWeight: FontWeight.bold,
-              ),
+          if (impacts.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                state.setTab(1); // Switch to Campaigns tab
+              },
+              child: const Text('VIEW CAMPAIGNS', style: TextStyle(color: Color(0xFFE040FB), fontWeight: FontWeight.bold)),
             ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isSuccess ? const Color(0xFF00E676) : Colors.redAccent,
+              foregroundColor: isSuccess ? Colors.black : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('DONE', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),

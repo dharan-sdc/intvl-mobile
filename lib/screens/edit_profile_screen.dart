@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
+import 'user_guide_screen.dart';
 
 /// Screen component permitting users to modify account details, stats, or theme colors.
 ///
@@ -11,8 +12,6 @@ class EditProfileScreen extends StatefulWidget {
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
 }
-
-class _MainEditProfileScreenState {} // dummy to check state
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -89,11 +88,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           padding: const EdgeInsets.all(20),
           child: Form(
             key: _formKey,
-            child: Card(
-              color: Colors.white,
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              child: Padding(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Card(
+                  color: Colors.white,
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -263,9 +265,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
                                   if (success && mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Profile saved successfully!')),
+                                      const SnackBar(content: Text('Profile saved successfully!'), backgroundColor: Colors.green),
                                     );
                                     Navigator.pop(context);
+                                  } else if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(state.errorMessage ?? 'Failed to update profile.'),
+                                        backgroundColor: Colors.redAccent,
+                                      ),
+                                    );
                                   }
                                 }
                               },
@@ -290,10 +299,80 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ),
             ),
-          ),
+            const SizedBox(height: 16),
+
+            // 2. Field Manual & Guide Preferences Card
+            Card(
+              color: Colors.white,
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'FIELD MANUAL & TUTORIAL SETTINGS',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFE040FB),
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE040FB).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.menu_book, color: Color(0xFFE040FB), size: 22),
+                      ),
+                      title: const Text('Tactical Field Manual & Game Guide', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      subtitle: const Text('Read in-depth rules on H3 grids, sieges, clubs, and offline tracking.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const UserGuideScreen()),
+                        );
+                      },
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Show First-Time Guide on Next Launch', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Re-enable the automatic tactical tutorial on startup.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                      value: !state.hasSeenUserGuide,
+                      activeColor: const Color(0xFFE040FB),
+                      onChanged: (val) {
+                        state.markUserGuideSeen(seen: !val);
+                      },
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Show Welcome Onboarding on Sign Out', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Displays introductory slides on the login screen when signed out.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                      value: !state.hasSeenWelcomeOnboarding,
+                      activeColor: const Color(0xFFE040FB),
+                      onChanged: (val) {
+                        state.markWelcomeOnboardingSeen(seen: !val);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 
   /// Renders customized input field forms with theme decorators.

@@ -10,10 +10,12 @@ import 'screens/player_profile_screen.dart';
 import 'screens/club_screen.dart';
 import 'screens/user_guide_screen.dart';
 import 'widgets/welcome_tour_dialog.dart';
+import 'widgets/celebration_dialog.dart';
 
 /// Entry point of the mobile application.
 /// Sets up the [AppState] ChangeNotifierProvider at the top level.
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppState(),
@@ -60,6 +62,38 @@ class AuthenticationWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
+    if (!state.isInitialized) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF1E1E24),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.directions_run, size: 64, color: Color(0xFFE040FB)),
+              SizedBox(height: 16),
+              Text(
+                'TRION',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 4,
+                ),
+              ),
+              SizedBox(height: 24),
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE040FB)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return state.isLoggedIn ? const MainTabNavigation() : const LoginScreen();
   }
 }
@@ -93,9 +127,48 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
     });
   }
 
+  bool _isProcessingCelebration = false;
+
+  void _checkPendingCelebrations(AppState state) {
+    if (_isProcessingCelebration || !mounted) return;
+    if (state.isRecording) return; // Don't interrupt active recording
+    if (state.newlyUnlockedAchievements.isEmpty && state.newlyCompletedMissions.isEmpty) return;
+
+    _isProcessingCelebration = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        _isProcessingCelebration = false;
+        return;
+      }
+      try {
+        final achievements = state.consumeNewlyUnlockedAchievements();
+        for (final a in achievements) {
+          if (!mounted) break;
+          await CelebrationDialog.showAchievement(context, achievement: a);
+        }
+        final missions = state.consumeNewlyCompletedMissions();
+        for (final m in missions) {
+          if (!mounted) break;
+          await CelebrationDialog.showMission(context, mission: m);
+        }
+      } catch (e) {
+        debugPrint('Error showing celebration queue: $e');
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isProcessingCelebration = false;
+          });
+        } else {
+          _isProcessingCelebration = false;
+        }
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
+    _checkPendingCelebrations(state);
 
     return Scaffold(
       body: IndexedStack(
@@ -125,6 +198,9 @@ class _MainTabNavigationState extends State<MainTabNavigation> {
           } else if (index == 4) {
             state.fetchProgression();
             state.fetchMissions();
+            state.fetchFriends(force: true);
+            state.fetchPendingFriendRequests(force: true);
+            state.fetchRouteInvitations(force: true);
           }
         },
         items: const [

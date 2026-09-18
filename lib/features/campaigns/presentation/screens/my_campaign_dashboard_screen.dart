@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_state.dart';
-import '../widgets/celebration_dialog.dart';
+import 'package:mobile/app_state.dart';
+import 'package:mobile/shared/widgets/celebration_dialog.dart';
 import 'campaign_leaderboard_screen.dart';
 
 /// Personal campaign dashboard / cockpit for an enrolled user.
@@ -194,9 +194,9 @@ class _MyCampaignDashboardScreenState extends State<MyCampaignDashboardScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: themeColor.withOpacity(0.4), width: 1.5),
+                border: Border.all(color: themeColor.withValues(alpha: 0.4), width: 1.5),
                 boxShadow: [
-                  BoxShadow(color: themeColor.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 4)),
+                  BoxShadow(color: themeColor.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4)),
                 ],
               ),
               child: Column(
@@ -212,9 +212,9 @@ class _MyCampaignDashboardScreenState extends State<MyCampaignDashboardScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFA000).withOpacity(0.12),
+                          color: const Color(0xFFFFA000).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFFFA000).withOpacity(0.4)),
+                          border: Border.all(color: const Color(0xFFFFA000).withValues(alpha: 0.4)),
                         ),
                         child: Row(
                           children: [
@@ -321,7 +321,7 @@ class _MyCampaignDashboardScreenState extends State<MyCampaignDashboardScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.grey.shade200, width: 1.2),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
                 ],
               ),
               child: Row(
@@ -376,61 +376,59 @@ class _MyCampaignDashboardScreenState extends State<MyCampaignDashboardScreen> {
                 return InkWell(
                   borderRadius: BorderRadius.circular(12),
                   onTap: () {
-                    if (tx.transactionType == 'MILESTONE' || tx.transactionType == 'COMPLETION') {
-                      CelebrationDialog.showCampaignMilestone(
-                        context,
-                        campaignTitle: campaign.title,
-                        iconEmoji: campaign.iconEmoji,
-                        milestoneTitle: tx.description ?? tx.transactionType,
-                        thresholdKm: targetDist,
-                        bonusPoints: tx.points,
-                        currentDistanceKm: userDist,
-                        targetDistanceKm: targetDist,
-                        totalPoints: dashboard.totalPoints,
-                        isGoalCompleted: tx.transactionType == 'COMPLETION',
-                      );
-                    }
+                    CelebrationDialog.showCampaignMilestone(
+                      context,
+                      campaignTitle: campaign.title,
+                      iconEmoji: campaign.iconEmoji,
+                      milestoneTitle: tx.description ?? tx.transactionType,
+                      thresholdKm: userDist,
+                      bonusPoints: tx.points,
+                      currentDistanceKm: userDist,
+                      targetDistanceKm: targetDist,
+                      totalPoints: dashboard.totalPoints,
+                      isGoalCompleted: tx.transactionType == 'COMPLETION',
+                    );
                   },
                   child: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2)),
-                    ],
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2)),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: badgeColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            tx.transactionType,
+                            style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 10),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            tx.description ?? 'Point award',
+                            style: const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                        Text(
+                          '+${tx.points} PTS',
+                          style: const TextStyle(color: Color(0xFF00C853), fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: badgeColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          tx.transactionType,
-                          style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 10),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          tx.description ?? 'Point award',
-                          style: const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                      Text(
-                        '+${tx.points} PTS',
-                        style: TextStyle(color: badgeColor, fontWeight: FontWeight.w900, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
+                );
+              }),
 
             const SizedBox(height: 80),
           ],
@@ -442,7 +440,7 @@ class _MyCampaignDashboardScreenState extends State<MyCampaignDashboardScreen> {
           color: Colors.white,
           border: Border(top: BorderSide(color: Colors.grey.shade200, width: 1)),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, -2)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, -2)),
           ],
         ),
         child: SafeArea(
@@ -469,7 +467,7 @@ class _MyCampaignDashboardScreenState extends State<MyCampaignDashboardScreen> {
               const SizedBox(width: 12),
               IconButton(
                 style: IconButton.styleFrom(
-                  backgroundColor: const Color(0xFFFFA000).withOpacity(0.12),
+                  backgroundColor: const Color(0xFFFFA000).withValues(alpha: 0.12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.all(14),
                 ),

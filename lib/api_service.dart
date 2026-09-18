@@ -7,8 +7,8 @@ import 'package:http/http.dart' as http;
 /// Features automated request/response logging, latency measurement,
 /// connection diagnostic probes, and structured error extraction.
 class ApiService {
-   String _baseUrl = 'http://localhost:8080';
-  //String _baseUrl = 'https://intvl-api.onrender.com';
+  String _baseUrl = 'http://localhost:8080';
+  // String _baseUrl = 'https://intvl-api.onrender.com';
   // String _baseUrl = 'http://[IP_ADDRESS]'; // Replace with your actual local IP
 
   ApiService({String? initialBaseUrl}) {
@@ -17,8 +17,20 @@ class ApiService {
     }
   }
 
+  String? _authToken;
+
   /// Returns the current active server base URL.
   String get baseUrl => _baseUrl;
+
+  /// Updates the active authentication token used for authorized requests.
+  void setAuthToken(String? token) {
+    _authToken = token;
+    if (token != null && token.isNotEmpty) {
+      debugPrint('🔑 [API AUTH] Authorization bearer token registered in ApiService.');
+    } else {
+      debugPrint('🔓 [API AUTH] Authorization bearer token cleared.');
+    }
+  }
 
   /// Updates the server base URL configuration.
   void setBaseUrl(String url) {
@@ -32,21 +44,79 @@ class ApiService {
   // CENTRAL LOGGING HTTP CLIENT WRAPPERS
   // ==========================================
 
+  static const Duration _defaultTimeout = Duration(seconds: 15);
+
+  Map<String, String> _buildHeaders(Map<String, String>? customHeaders) {
+    final headers = <String, String>{};
+    if (_authToken != null && _authToken!.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $_authToken';
+    }
+    if (customHeaders != null) {
+      headers.addAll(customHeaders);
+    }
+    return headers;
+  }
+
   String _truncate(String text, int maxLen) {
     if (text.length <= maxLen) return text;
     return '${text.substring(0, maxLen)}...';
   }
 
-  Future<http.Response> _httpGet(Uri uri, {Map<String, String>? headers}) async {
+  // Callbacks for automated silent token refresh and session expiry
+  Future<String?> Function()? onTokenRefreshNeeded;
+  void Function()? onSessionExpired;
+  bool _isRefreshing = false;
+
+  bool _isAuthEndpoint(Uri uri) {
+    final path = uri.path;
+    return path.contains('/api/v1/auth/login') ||
+        path.contains('/api/v1/auth/register') ||
+        path.contains('/api/v1/auth/refresh') ||
+        path.contains('/api/v1/health');
+  }
+
+  Future<http.Response> _handleAuthRetry(
+    Uri uri,
+    http.Response originalResponse,
+    Future<http.Response> Function() retryFunc,
+  ) async {
+    if (originalResponse.statusCode == 401 && !_isAuthEndpoint(uri)) {
+      if (onTokenRefreshNeeded != null && !_isRefreshing) {
+        _isRefreshing = true;
+        try {
+          debugPrint('🔄 [API AUTH] 401 Unauthorized encountered on $uri. Attempting silent token refresh...');
+          final newToken = await onTokenRefreshNeeded!();
+          if (newToken != null && newToken.isNotEmpty) {
+            setAuthToken(newToken);
+            debugPrint('🔁 [API AUTH] Retrying request to $uri with new token...');
+            return await retryFunc();
+          } else {
+            debugPrint('⚠️ [API AUTH] Token refresh failed. Session expired.');
+            onSessionExpired?.call();
+          }
+        } finally {
+          _isRefreshing = false;
+        }
+      } else if (onSessionExpired != null && !_isRefreshing) {
+        onSessionExpired?.call();
+      }
+    }
+    return originalResponse;
+  }
+
+  Future<http.Response> _httpGet(Uri uri, {Map<String, String>? headers, Duration? timeout, bool isRetry = false}) async {
     final sw = Stopwatch()..start();
     debugPrint('🌐 [API REQ] GET $uri');
     try {
-      final response = await http.get(uri, headers: headers);
+      final response = await http.get(uri, headers: _buildHeaders(headers)).timeout(timeout ?? _defaultTimeout);
       sw.stop();
       if (response.statusCode >= 200 && response.statusCode < 300) {
         debugPrint('✅ [API RES ${response.statusCode}] GET $uri (${sw.elapsedMilliseconds}ms)');
       } else {
         debugPrint('⚠️ [API RES ${response.statusCode}] GET $uri (${sw.elapsedMilliseconds}ms) -> ${_truncate(response.body, 150)}');
+      }
+      if (!isRetry && response.statusCode == 401) {
+        return await _handleAuthRetry(uri, response, () => _httpGet(uri, headers: headers, timeout: timeout, isRetry: true));
       }
       return response;
     } catch (e) {
@@ -57,16 +127,19 @@ class ApiService {
     }
   }
 
-  Future<http.Response> _httpPost(Uri uri, {Map<String, String>? headers, Object? body}) async {
+  Future<http.Response> _httpPost(Uri uri, {Map<String, String>? headers, Object? body, Duration? timeout, bool isRetry = false}) async {
     final sw = Stopwatch()..start();
     debugPrint('🌐 [API REQ] POST $uri');
     try {
-      final response = await http.post(uri, headers: headers, body: body);
+      final response = await http.post(uri, headers: _buildHeaders(headers), body: body).timeout(timeout ?? _defaultTimeout);
       sw.stop();
       if (response.statusCode >= 200 && response.statusCode < 300) {
         debugPrint('✅ [API RES ${response.statusCode}] POST $uri (${sw.elapsedMilliseconds}ms)');
       } else {
         debugPrint('⚠️ [API RES ${response.statusCode}] POST $uri (${sw.elapsedMilliseconds}ms) -> ${_truncate(response.body, 150)}');
+      }
+      if (!isRetry && response.statusCode == 401) {
+        return await _handleAuthRetry(uri, response, () => _httpPost(uri, headers: headers, body: body, timeout: timeout, isRetry: true));
       }
       return response;
     } catch (e) {
@@ -77,16 +150,19 @@ class ApiService {
     }
   }
 
-  Future<http.Response> _httpPut(Uri uri, {Map<String, String>? headers, Object? body}) async {
+  Future<http.Response> _httpPut(Uri uri, {Map<String, String>? headers, Object? body, Duration? timeout, bool isRetry = false}) async {
     final sw = Stopwatch()..start();
     debugPrint('🌐 [API REQ] PUT $uri');
     try {
-      final response = await http.put(uri, headers: headers, body: body);
+      final response = await http.put(uri, headers: _buildHeaders(headers), body: body).timeout(timeout ?? _defaultTimeout);
       sw.stop();
       if (response.statusCode >= 200 && response.statusCode < 300) {
         debugPrint('✅ [API RES ${response.statusCode}] PUT $uri (${sw.elapsedMilliseconds}ms)');
       } else {
         debugPrint('⚠️ [API RES ${response.statusCode}] PUT $uri (${sw.elapsedMilliseconds}ms) -> ${_truncate(response.body, 150)}');
+      }
+      if (!isRetry && response.statusCode == 401) {
+        return await _handleAuthRetry(uri, response, () => _httpPut(uri, headers: headers, body: body, timeout: timeout, isRetry: true));
       }
       return response;
     } catch (e) {
@@ -98,10 +174,12 @@ class ApiService {
   }
 
   /// Pings backend health check to verify connectivity.
-  Future<bool> checkBackendConnection() async {
+  Future<bool> checkBackendConnection({Duration timeout = const Duration(seconds: 4)}) async {
     debugPrint('🔍 [BACKEND PROBE] Testing connection to: $_baseUrl/api/v1/health ...');
     try {
-      final response = await _httpGet(Uri.parse('$_baseUrl/api/v1/health'));
+      final response = await http
+          .get(Uri.parse('$_baseUrl/api/v1/health'))
+          .timeout(timeout);
       if (response.statusCode == 200) {
         debugPrint('🎉 [BACKEND ONLINE] Successfully connected to backend at $_baseUrl (status: UP)');
         return true;
@@ -166,6 +244,21 @@ class ApiService {
     }
   }
 
+  /// Exchanges a 30-day Refresh Token for a fresh 15-minute Access Token
+  Future<Map<String, dynamic>> refreshToken(String refreshToken) async {
+    final response = await _httpPost(
+      Uri.parse('$_baseUrl/api/v1/auth/refresh'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'refreshToken': refreshToken}),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception(_extractErrorMessage(response, 'Failed to refresh token'));
+    }
+  }
+
   Future<Map<String, dynamic>> register({
     required String email,
     required String password,
@@ -216,6 +309,7 @@ class ApiService {
     required int duration,
     required double distance,
     required List<Map<String, double>> points,
+    String? clientActivityId,
     int? targetTerritoryId,
     int? routeInvitationId,
   }) async {
@@ -225,7 +319,9 @@ class ApiService {
         'Content-Type': 'application/json',
         'X-User-Id': userId.toString(),
       },
+      timeout: const Duration(seconds: 90),
       body: jsonEncode({
+        'clientActivityId': clientActivityId,
         'type': type,
         'duration': duration,
         'distance': distance,
@@ -449,6 +545,15 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception(_extractErrorMessage(response, 'Failed to load pending friend requests'));
+    }
+  }
+
+  Future<List<dynamic>> getSentFriendRequests(int userId) async {
+    final response = await _httpGet(Uri.parse('$_baseUrl/api/v1/friends/sent?userId=$userId'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception(_extractErrorMessage(response, 'Failed to load sent friend requests'));
     }
   }
 

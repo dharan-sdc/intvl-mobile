@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import '../app_state.dart';
+import '../../app_state.dart';
 
 /// High-energy, gamified Celebration Dialog presented when an activity finishes,
 /// a closed loop claims territory, cosmetic shop rewards are claimed, campaign

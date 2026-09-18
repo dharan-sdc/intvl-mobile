@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_state.dart';
-import '../widgets/celebration_dialog.dart';
+import 'package:mobile/app_state.dart';
+import 'package:mobile/shared/widgets/celebration_dialog.dart';
 import 'campaign_details_screen.dart';
 import 'my_campaign_dashboard_screen.dart';
 

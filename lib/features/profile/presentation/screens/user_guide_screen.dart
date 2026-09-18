@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_state.dart';
+import 'package:mobile/app_state.dart';
 
 /// Comprehensive User Guide and Tactical Field Manual Screen.
 ///

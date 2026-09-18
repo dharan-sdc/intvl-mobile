@@ -4,10 +4,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import '../app_state.dart';
-import '../widgets/celebration_dialog.dart';
-import '../widgets/contextual_tip_banner.dart';
-import 'user_guide_screen.dart';
+import 'package:mobile/app_state.dart';
+import 'package:mobile/shared/widgets/celebration_dialog.dart';
+import 'package:mobile/widgets/contextual_tip_banner.dart';
+import 'package:mobile/screens/user_guide_screen.dart';
 
 /// Interactive map screen showing GPS paths, territories claimed, and real-time navigation controls.
 ///
@@ -1407,9 +1407,9 @@ class _MapScreenState extends State<MapScreen> {
                   flex: 2,
                   child: ElevatedButton(
                     onPressed: state.isLoading ? null : () async {
+                      final initialLevel = state.level;
                       final savedDistance = state.distanceMeters;
                       final savedDuration = state.durationSeconds;
-                      final initialLevel = state.level;
                       final res = await state.completeAndSubmitActivity();
                       if (res != null && mounted) {
                         if (res['status'] == 'SAVED_OFFLINE') {

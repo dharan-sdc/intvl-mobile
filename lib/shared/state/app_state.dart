@@ -6,8 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'api_service.dart';
-import 'error_handler.dart';
+import '../../api_service.dart';
+import '../../error_handler.dart';
 
 /// Operational state of the Unified Location Subsystem.
 enum TrackingMode {
@@ -2817,12 +2817,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         height = heightInput;
         age = ageInput;
         gender = genderInput;
-        await _saveUserSession();
-        await _savePlayerSnapshotToDisk();
         _setLoading(false);
         // Refresh local listings/leaderboards
         await fetchLeaderboard();
         await fetchPlayerStats();
+        await _savePlayerSnapshotToDisk();
         return true;
       }
       _setLoading(false);

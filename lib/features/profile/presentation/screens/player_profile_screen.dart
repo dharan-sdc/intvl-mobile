@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_state.dart';
-import '../widgets/celebration_dialog.dart';
+import 'package:mobile/app_state.dart';
+import 'package:mobile/shared/widgets/celebration_dialog.dart';
 import 'edit_profile_screen.dart';
 import 'user_guide_screen.dart';
 
@@ -891,8 +891,6 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 0. My Username Banner
-           
 
             // 1. Add Friend Card
             Card(

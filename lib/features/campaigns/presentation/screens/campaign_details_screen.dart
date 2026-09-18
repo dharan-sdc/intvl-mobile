@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_state.dart';
-import '../widgets/celebration_dialog.dart';
+import 'package:mobile/app_state.dart';
+import 'package:mobile/shared/widgets/celebration_dialog.dart';
 import 'my_campaign_dashboard_screen.dart';
 import 'campaign_leaderboard_screen.dart';
 
@@ -423,61 +423,61 @@ class _CampaignDetailsScreenState extends State<CampaignDetailsScreen> {
                           );
                         },
                         child: Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: m.isAchieved ? const Color(0xFF00C853).withValues(alpha: 0.5) : Colors.grey.shade200,
-                            width: 1.2,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: m.isAchieved ? const Color(0xFF00C853).withOpacity(0.5) : Colors.grey.shade200,
+                              width: 1.2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+                            ],
                           ),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2)),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              m.isAchieved ? Icons.check_circle : Icons.radio_button_unchecked,
-                              color: m.isAchieved ? const Color(0xFF00C853) : Colors.grey.shade400,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    m.title,
-                                    style: TextStyle(
-                                      color: m.isAchieved ? const Color(0xFF00C853) : Colors.black87,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
+                          child: Row(
+                            children: [
+                              Icon(
+                                m.isAchieved ? Icons.check_circle : Icons.radio_button_unchecked,
+                                color: m.isAchieved ? const Color(0xFF00C853) : Colors.grey.shade400,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      m.title,
+                                      style: TextStyle(
+                                        color: m.isAchieved ? const Color(0xFF00C853) : Colors.black87,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
                                     ),
-                                  ),
-                                  Text(
-                                    '${m.thresholdKm.toStringAsFixed(1)} KM Milestone',
-                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
-                                  ),
-                                ],
+                                    Text(
+                                      '${m.thresholdKm.toStringAsFixed(1)} KM Milestone',
+                                      style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFA000).withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFA000).withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '+${m.bonusPoints} PTS',
+                                  style: const TextStyle(color: Color(0xFFE65100), fontWeight: FontWeight.bold, fontSize: 11),
+                                ),
                               ),
-                              child: Text(
-                                '+${m.bonusPoints} PTS',
-                                style: const TextStyle(color: Color(0xFFE65100), fontWeight: FontWeight.bold, fontSize: 11),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    );
+                      );
                     }),
                   ],
 
